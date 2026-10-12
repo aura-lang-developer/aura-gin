@@ -1,0 +1,6 @@
+*.mjs
+*.map
+*.tmp.mjs
+.DS_Store
+dist/
+bin/
