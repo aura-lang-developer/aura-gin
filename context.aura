@@ -7,15 +7,14 @@ import {
   Param,
   Params,
   H,
-  GinError
+  GinError,
+  MIMEJSON,
+  MIMEPlain,
+  MIMEHTML,
+  MIMEXML,
+  MIMEYAML,
+  ErrorTypeAny
 } from "./types";
-
-let MIMEJSON = "application/json";
-let MIMEPlain = "text/plain";
-let MIMEHTML = "text/html";
-let MIMEXML = "application/xml";
-let MIMEYAML = "application/x-yaml";
-let ErrorTypeAny = 15;
 
 
 // The Context struct is the heart of Gin-Gonic.
@@ -406,7 +405,7 @@ fn (c: *GinContext) Status(code: Int): Unit => {
 // Serializes object to JSON and writes response
 fn (c: *GinContext) JSON(code: Int, obj: Any): Unit => {
   c.Status(code);
-  c.Header("Content-Type", `${MIMEJSON}; charset=utf-8`);
+  c.Header("Content-Type", `${MIMEJSON()}; charset=utf-8`);
   let payload = JSON.stringify(obj);
   let res = c.Writer;
   if res != null {
@@ -422,7 +421,7 @@ fn (c: *GinContext) JSON(code: Int, obj: Any): Unit => {
 // Formats JSON with 2-space indentation
 fn (c: *GinContext) IndentedJSON(code: Int, obj: Any): Unit => {
   c.Status(code);
-  c.Header("Content-Type", `${MIMEJSON}; charset=utf-8`);
+  c.Header("Content-Type", `${MIMEJSON()}; charset=utf-8`);
   let payload = JSON.stringify(obj, null, 2);
   let res = c.Writer;
   if res != null {
@@ -443,7 +442,7 @@ fn (c: *GinContext) PureJSON(code: Int, obj: Any): Unit => {
 // Serializes to ASCII JSON
 fn (c: *GinContext) AsciiJSON(code: Int, obj: Any): Unit => {
   c.Status(code);
-  c.Header("Content-Type", `${MIMEJSON}; charset=utf-8`);
+  c.Header("Content-Type", `${MIMEJSON()}; charset=utf-8`);
   let raw = JSON.stringify(obj);
   let res = c.Writer;
   if res != null {
@@ -459,7 +458,7 @@ fn (c: *GinContext) AsciiJSON(code: Int, obj: Any): Unit => {
 // Writes JSON with anti-hijacking prefix 'while(1);'
 fn (c: *GinContext) SecureJSON(code: Int, obj: Any): Unit => {
   c.Status(code);
-  c.Header("Content-Type", `${MIMEJSON}; charset=utf-8`);
+  c.Header("Content-Type", `${MIMEJSON()}; charset=utf-8`);
   let payload = `while(1);${JSON.stringify(obj)}`;
   let res = c.Writer;
   if res != null {
@@ -475,7 +474,7 @@ fn (c: *GinContext) SecureJSON(code: Int, obj: Any): Unit => {
 // Writes plain text string
 fn (c: *GinContext) String(code: Int, text: String): Unit => {
   c.Status(code);
-  c.Header("Content-Type", `${MIMEPlain}; charset=utf-8`);
+  c.Header("Content-Type", `${MIMEPlain()}; charset=utf-8`);
   let res = c.Writer;
   if res != null {
     if res.writeHead != null {
@@ -490,7 +489,7 @@ fn (c: *GinContext) String(code: Int, text: String): Unit => {
 // Writes HTML content
 fn (c: *GinContext) HTML(code: Int, htmlContent: String): Unit => {
   c.Status(code);
-  c.Header("Content-Type", `${MIMEHTML}; charset=utf-8`);
+  c.Header("Content-Type", `${MIMEHTML()}; charset=utf-8`);
   let res = c.Writer;
   if res != null {
     if res.writeHead != null {
@@ -505,7 +504,7 @@ fn (c: *GinContext) HTML(code: Int, htmlContent: String): Unit => {
 // Writes XML content
 fn (c: *GinContext) XML(code: Int, xmlContent: String): Unit => {
   c.Status(code);
-  c.Header("Content-Type", `${MIMEXML}; charset=utf-8`);
+  c.Header("Content-Type", `${MIMEXML()}; charset=utf-8`);
   let res = c.Writer;
   if res != null {
     if res.writeHead != null {
@@ -520,7 +519,7 @@ fn (c: *GinContext) XML(code: Int, xmlContent: String): Unit => {
 // Writes YAML content
 fn (c: *GinContext) YAML(code: Int, yamlContent: String): Unit => {
   c.Status(code);
-  c.Header("Content-Type", `${MIMEYAML}; charset=utf-8`);
+  c.Header("Content-Type", `${MIMEYAML()}; charset=utf-8`);
   let res = c.Writer;
   if res != null {
     if res.writeHead != null {
@@ -631,7 +630,7 @@ fn (c: *GinContext) FullPath(): String => {
 fn (c: *GinContext) Error(err: String): GinError => {
   let gErr: GinError = {
     err: err,
-    errType: ErrorTypeAny,
+    errType: ErrorTypeAny(),
     meta: null
   };
   c.Errors = append(c.Errors, gErr);

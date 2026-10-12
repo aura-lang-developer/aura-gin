@@ -3,13 +3,14 @@
 // render.aura - Response Rendering Engines (JSON, HTML, XML, Plain, Redirect)
 // ==============================================================================
 
-import { Render } from "./types";
-
-let MIMEJSON = "application/json";
-let MIMEPlain = "text/plain";
-let MIMEHTML = "text/html";
-let MIMEXML = "application/xml";
-let MIMEYAML = "application/x-yaml";
+import {
+  Render,
+  MIMEJSON,
+  MIMEPlain,
+  MIMEHTML,
+  MIMEXML,
+  MIMEYAML
+} from "./types";
 
 
 // JSON Renderer
@@ -24,7 +25,7 @@ export fn NewJSON(data: Any): JSONRenderer => {
 fn (r: JSONRenderer) Render(res: Any): Unit => {
   if res != null {
     if res.setHeader != null {
-      res.setHeader("Content-Type", `${MIMEJSON}; charset=utf-8`);
+      res.setHeader("Content-Type", `${MIMEJSON()}; charset=utf-8`);
     }
     if res.end != null {
       res.end(JSON.stringify(r.data));
@@ -44,7 +45,7 @@ export fn NewString(text: String): StringRenderer => {
 fn (r: StringRenderer) Render(res: Any): Unit => {
   if res != null {
     if res.setHeader != null {
-      res.setHeader("Content-Type", `${MIMEPlain}; charset=utf-8`);
+      res.setHeader("Content-Type", `${MIMEPlain()}; charset=utf-8`);
     }
     if res.end != null {
       res.end(r.format);
@@ -64,7 +65,7 @@ export fn NewHTML(html: String): HTMLRenderer => {
 fn (r: HTMLRenderer) Render(res: Any): Unit => {
   if res != null {
     if res.setHeader != null {
-      res.setHeader("Content-Type", `${MIMEHTML}; charset=utf-8`);
+      res.setHeader("Content-Type", `${MIMEHTML()}; charset=utf-8`);
     }
     if res.end != null {
       res.end(r.html);
