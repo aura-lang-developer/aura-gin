@@ -18,15 +18,12 @@ export fn StreamChannel(c: *GinContext, ch: Channel<String>): Unit => {
     let mut open = true;
     while open {
       let msg = <-ch;
-      match msg {
-        Some(val) => {
-          if res != null && res.write != null {
-            res.write(`data: ${val}\n\n`);
-          }
-        },
-        None => {
-          open = false;
+      if msg != "" {
+        if res != null && res.write != null {
+          res.write(`data: ${msg}\n\n`);
         }
+      } else {
+        open = false;
       };
     };
   };

@@ -77,7 +77,7 @@ export type NodeType =
   | NodeCatchAll(String);
 
 export type MatchResult =
-  | MatchedRoute(Any, Params, String)
+  | MatchedRoute([]Any, Params, String)
   | RouteNotFound
   | MethodNotAllowedRoute;
 

@@ -94,8 +94,8 @@ fn (b: JSONBinding) Name(): String => {
   "json"
 }
 
-fn (b: JSONBinding) Bind(req: Any, rules: []FieldRule): Result<Any, String> => {
-  let raw = if req.rawBody != null { `${req.rawBody}` } else { "" };
+fn (b: JSONBinding) Bind(reqObj: Any, rules: []FieldRule): Result<Any, String> => {
+  let raw = if reqObj.rawBody != null { `${reqObj.rawBody}` } else { "" };
   if raw == "" {
     return Err("Empty body payload");
   }

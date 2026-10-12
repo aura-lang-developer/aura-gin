@@ -143,8 +143,8 @@ fn (tree: *RadixTree) Search(path: String): MatchResult => {
   let mut current = tree.root;
   let mut capturedParams: Params = [];
 
-  let mut idx = 0;
-  let totalParts = len(parts);
+  let mut idx: Int = 0;
+  let totalParts: Int = len(parts);
   let mut searchFailed = false;
 
   while idx < totalParts && !searchFailed {
@@ -178,7 +178,7 @@ fn (tree: *RadixTree) Search(path: String): MatchResult => {
     } else if wildcardChild >= 0 {
       current = current.children[wildcardChild];
       let mut wildParts: []String = [];
-      let mut remainingIdx = idx;
+      let mut remainingIdx: Int = idx;
       while remainingIdx < totalParts {
         wildParts = append(wildParts, parts[remainingIdx]);
         remainingIdx += 1;

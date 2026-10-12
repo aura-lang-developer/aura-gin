@@ -135,10 +135,10 @@ fn (engine: *Engine) addRoute(httpMethod: String, path: String, handlers: []Any)
   if foundTreeIdx == -1 {
     let newTree = NewRadixTree(upperMethod);
     engine.trees = append(engine.trees, newTree);
-    foundTreeIdx = len(engine.trees) - 1;
+    engine.trees[len(engine.trees) - 1].AddRoute(path, handlers);
+  } else {
+    engine.trees[foundTreeIdx].AddRoute(path, handlers);
   }
-
-  engine.trees[foundTreeIdx].AddRoute(path, handlers);
 
   // Record route introspection
   let rInfo: RouteInfo = {
@@ -148,11 +148,6 @@ fn (engine: *Engine) addRoute(httpMethod: String, path: String, handlers: []Any)
     numHandlers: len(handlers)
   };
   engine.allRoutes = append(engine.allRoutes, rInfo);
-  let mut cur = engine.parent;
-  while cur != null && cur != undefined {
-    cur.allRoutes = append(cur.allRoutes, rInfo);
-    cur = cur.parent;
-  };
 
 
   if IsDebugging() {
@@ -305,24 +300,25 @@ fn (engine: *Engine) Routes(): RoutesInfo => {
 // ------------------------------------------------------------------------------
 
 // Dispatches an incoming HTTP request through Gin's routing tree and middleware pipeline
-fn (engine: *Engine) ServeHTTP(req: Any, res: Any): Unit => {
-  let mut c = NewContext(req, res, engine);
+fn (engine: *Engine) ServeHTTP(httpReq: Any, httpRes: Any): Unit => {
+  let mut c = NewContext(httpReq, httpRes, engine);
 
   // Extract raw body if present
-  if req.rawBody != null && req.rawBody != undefined {
-    c.rawBody = `${req.rawBody}`;
+  if httpReq.rawBody != null && httpReq.rawBody != undefined {
+    c.rawBody = `${httpReq.rawBody}`;
   }
 
   // Parse path from URL
   let mut path = "/";
-  if req.path != null && req.path != undefined && req.path != "" {
-    path = req.path;
-  } else if req.url != null && req.url != undefined && req.url != "" {
-    let qIdx = req.url.indexOf("?");
-    path = if qIdx >= 0 { req.url.substring(0, qIdx) } else { req.url };
+  if httpReq.path != null && httpReq.path != undefined && httpReq.path != "" {
+    path = `${httpReq.path}`;
+  } else if httpReq.url != null && httpReq.url != undefined && httpReq.url != "" {
+    let rawUrl = `${httpReq.url}`;
+    let qIdx = rawUrl.indexOf("?");
+    path = if qIdx >= 0 { `${rawUrl.substring(0, qIdx)}` } else { rawUrl };
   }
 
-  let method = if req.method != null && req.method != undefined { `${req.method}`.toUpperCase() } else { "GET" };
+  let method = if httpReq.method != null && httpReq.method != undefined { `${httpReq.method}`.toUpperCase() } else { "GET" };
 
 
   // Find matching Radix Tree for method
@@ -400,18 +396,18 @@ fn (engine: *Engine) Run(addr: String): Unit => {
   engine.mux = mux;
 
   // Wildcard route capturing all HTTP methods and paths into Gin's engine.ServeHTTP
-  mux.handle("/*", fn(req: Any, res: Any) => {
+  mux.handle("/*", fn(httpReq: Any, httpRes: Any) => {
     let mut buffer = "";
-    if req.on != null && req.method != "GET" && req.method != "HEAD" {
-      req.on("data", fn(chunk: Any) => {
-        buffer = buffer + chunk;
+    if httpReq.on != null && httpReq.method != "GET" && httpReq.method != "HEAD" {
+      httpReq.on("data", fn(chunk: Any) => {
+        buffer = `${buffer}${chunk}`;
       });
-      req.on("end", fn() => {
-        req.rawBody = buffer;
-        engine.ServeHTTP(req, res);
+      httpReq.on("end", fn() => {
+        httpReq.rawBody = buffer;
+        engine.ServeHTTP(httpReq, httpRes);
       });
     } else {
-      engine.ServeHTTP(req, res);
+      engine.ServeHTTP(httpReq, httpRes);
     }
   });
 

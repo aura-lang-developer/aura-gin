@@ -140,9 +140,9 @@ fn (c: *GinContext) AddParam(key: String, value: String): Unit => {
 
 // Returns the value of a query string parameter, or empty string if not present
 fn (c: *GinContext) Query(key: String): String => {
-  let req = c.Request;
-  if req != null && req.query != null {
-    let raw = req.query[key];
+  let httpReq = c.Request;
+  if httpReq != null && httpReq.query != null {
+    let raw = httpReq.query[key];
     if raw != null {
       let str = `${raw}`;
       if str != "undefined" && str != "null" {
@@ -241,19 +241,19 @@ fn (c: *GinContext) GetPostForm(key: String): (String, Bool) => {
 
 // Retrieves request header value
 fn (c: *GinContext) GetHeader(key: String): String => {
-  let req = c.Request;
-  if req == null || req == undefined {
+  let httpReq = c.Request;
+  if httpReq == null || httpReq == undefined {
     return "";
   }
-  if req.getHeader != null && req.getHeader != undefined {
-    let gh = `${req.getHeader(key)}`;
+  if httpReq.getHeader != null && httpReq.getHeader != undefined {
+    let gh = `${httpReq.getHeader(key)}`;
     if gh != "" && gh != "undefined" && gh != "null" {
       return gh;
     }
   }
-  if req.headers != null && req.headers != undefined {
+  if httpReq.headers != null && httpReq.headers != undefined {
     let lowerKey = key.toLowerCase();
-    let raw = req.headers[lowerKey];
+    let raw = httpReq.headers[lowerKey];
     if raw != null && raw != undefined {
       let s = `${raw}`;
       if s != "" && s != "undefined" && s != "null" {
@@ -605,9 +605,9 @@ fn (c: *GinContext) ClientIP(): String => {
   if realIp != "" {
     return realIp;
   }
-  let req = c.Request;
-  if req != null && req != undefined && req.socket != null && req.socket != undefined && req.socket.remoteAddress != null && req.socket.remoteAddress != undefined {
-    return `${req.socket.remoteAddress}`;
+  let httpReq = c.Request;
+  if httpReq != null && httpReq != undefined && httpReq.socket != null && httpReq.socket != undefined && httpReq.socket.remoteAddress != null && httpReq.socket.remoteAddress != undefined {
+    return `${httpReq.socket.remoteAddress}`;
   }
   "127.0.0.1"
 }
