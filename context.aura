@@ -388,6 +388,10 @@ fn (c: *GinContext) GetFloat(key: String): Float => {
 // Sets the HTTP response status code
 fn (c: *GinContext) Status(code: Int): Unit => {
   c.statusCode = code;
+  let res = c.Writer;
+  if res != null && res.writeHead != null {
+    res.writeHead(code);
+  }
 }
 
 // Serializes object to JSON and writes response

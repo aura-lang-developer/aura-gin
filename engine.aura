@@ -334,6 +334,7 @@ fn (engine: *Engine) ServeHTTP(req: Any, res: Any): Unit => {
     }
   }
 
+  let mut matched = false;
   if targetTreeIdx >= 0 {
     let matchRes = engine.trees[targetTreeIdx].Search(path);
     match matchRes {
@@ -342,11 +343,15 @@ fn (engine: *Engine) ServeHTTP(req: Any, res: Any): Unit => {
         c.Params = params;
         c.fullPath = fullPath;
         c.Next();
-        return ();
+        matched = true;
       },
       RouteNotFound => (),
       MethodNotAllowedRoute => ()
     }
+  }
+
+  if matched {
+    return ();
   }
 
   // Check if route exists under ANY other HTTP method (405 Method Not Allowed)
