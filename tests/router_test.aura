@@ -1,0 +1,147 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// tests/router_test.aura - Unit Tests for Radix Trie Router
+// ==============================================================================
+
+import { NewRadixTree } from "../tree";
+import { MatchResult, MatchedRoute, RouteNotFound } from "../types";
+
+export fn main(): Unit => {
+  let mut passed = 0;
+  let mut failed = 0;
+
+  println("================================================================================");
+  println("  🧪 GIN AURA - RADIX TRIE ROUTER UNIT TESTS");
+  println("================================================================================");
+
+  // ----------------------------------------------------------------------------
+  // Test 1: Static Route Matching
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 1] Static Route Matching (/users/profile, /health)");
+  let mut tree = NewRadixTree("GET");
+  let dummyHandler = fn(c: Any) => ();
+  let handlers: []Any = [dummyHandler];
+
+  tree.AddRoute("/users/profile", handlers);
+  tree.AddRoute("/users/settings", handlers);
+  tree.AddRoute("/health", handlers);
+
+  let res1 = tree.Search("/users/profile");
+  match res1 {
+    MatchedRoute(h, params, fullPath) => {
+      if (fullPath == "/users/profile" && len(params) == 0) {
+        println("  ✓ PASS: Matched /users/profile exactly with 0 params");
+        passed += 1;
+      } else {
+        println("  ✕ FAIL: Params or path mismatch");
+        failed += 1;
+      };
+    },
+    RouteNotFound => {
+      println("  ✕ FAIL: /users/profile returned RouteNotFound");
+      failed += 1;
+    },
+    MethodNotAllowedRoute => {
+      println("  ✕ FAIL: Unexpected MethodNotAllowedRoute");
+      failed += 1;
+    }
+  };
+
+  let resMissing = tree.Search("/users/unknown");
+  match resMissing {
+    MatchedRoute(h, p, fp) => {
+      println("  ✕ FAIL: /users/unknown should not be found");
+      failed += 1;
+    },
+    RouteNotFound => {
+      println("  ✓ PASS: Correctly returned RouteNotFound for unknown route");
+      passed += 1;
+    },
+    MethodNotAllowedRoute => {
+      println("  ✕ FAIL: Unexpected MethodNotAllowedRoute");
+      failed += 1;
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 2: Named Parameter Routing (:id, :orderId)
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 2] Named Parameter Routing (:id, :orderId)");
+  let mut treeParams = NewRadixTree("GET");
+  treeParams.AddRoute("/users/:id", handlers);
+  treeParams.AddRoute("/users/:id/orders/:orderId", handlers);
+
+  let resParam = treeParams.Search("/users/42");
+  match resParam {
+    MatchedRoute(h, params, fullPath) => {
+      if (len(params) == 1 && params[0].key == "id" && params[0].value == "42") {
+        println("  ✓ PASS: Captured param :id = '42'");
+        passed += 1;
+      } else {
+        println("  ✕ FAIL: Parameter not captured correctly");
+        failed += 1;
+      };
+    },
+    RouteNotFound => {
+      println("  ✕ FAIL: /users/42 returned RouteNotFound");
+      failed += 1;
+    },
+    MethodNotAllowedRoute => {
+      println("  ✕ FAIL: Unexpected MethodNotAllowedRoute");
+      failed += 1;
+    }
+  };
+
+  let resMulti = treeParams.Search("/users/42/orders/999");
+  match resMulti {
+    MatchedRoute(h, params, fullPath) => {
+      if (len(params) == 2 && params[0].value == "42" && params[1].value == "999") {
+        println("  ✓ PASS: Captured multiple params :id = '42', :orderId = '999'");
+        passed += 1;
+      } else {
+        println("  ✕ FAIL: Multi-parameter capture mismatch");
+        failed += 1;
+      };
+    },
+    RouteNotFound => {
+      println("  ✕ FAIL: /users/42/orders/999 returned RouteNotFound");
+      failed += 1;
+    },
+    MethodNotAllowedRoute => {
+      println("  ✕ FAIL: Unexpected MethodNotAllowedRoute");
+      failed += 1;
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 3: Wildcard Catch-All Routing (*filepath)
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 3] Wildcard Catch-All Routing (*filepath)");
+  let mut treeWild = NewRadixTree("GET");
+  treeWild.AddRoute("/static/*filepath", handlers);
+
+  let resWild = treeWild.Search("/static/css/theme/dark.css");
+  match resWild {
+    MatchedRoute(h, params, fullPath) => {
+      if (len(params) == 1 && params[0].key == "filepath" && params[0].value == "css/theme/dark.css") {
+        println("  ✓ PASS: Captured wildcard *filepath = 'css/theme/dark.css'");
+        passed += 1;
+      } else {
+        println("  ✕ FAIL: Wildcard value mismatch");
+        failed += 1;
+      };
+    },
+    RouteNotFound => {
+      println("  ✕ FAIL: /static/css/theme/dark.css returned RouteNotFound");
+      failed += 1;
+    },
+    MethodNotAllowedRoute => {
+      println("  ✕ FAIL: Unexpected MethodNotAllowedRoute");
+      failed += 1;
+    }
+  };
+
+  println("\n--------------------------------------------------------------------------------");
+  println(`  📊 RESULTS: ${passed} PASSED | ${failed} FAILED`);
+  println("================================================================================");
+}

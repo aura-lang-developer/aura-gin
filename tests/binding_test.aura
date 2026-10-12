@@ -1,0 +1,186 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// tests/binding_test.aura - Unit Tests for Schema Validation & Binding
+// ==============================================================================
+
+import { ValidateRule, ValidateSchema, FieldRule, NewJSONBinding } from "../binding";
+
+export fn main(): Unit => {
+  let mut passed = 0;
+  let mut failed = 0;
+
+  println("================================================================================");
+  println("  🧪 GIN AURA - BINDING & VALIDATION UNIT TESTS");
+  println("================================================================================");
+
+  // ----------------------------------------------------------------------------
+  // Test 1: ValidateRule - required
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 1] ValidateRule - 'required'");
+  let okReq = ValidateRule("aura_dev", "required", "username");
+  match okReq {
+    Ok(_) => {
+      println("  ✓ PASS: Accepted non-empty string for 'required'");
+      passed += 1;
+    },
+    Err(e) => {
+      println("  ✕ FAIL: Expected Ok, got Err: " + e);
+      failed += 1;
+    }
+  };
+
+  let failReq = ValidateRule("", "required", "username");
+  match failReq {
+    Ok(_) => {
+      println("  ✕ FAIL: Empty string should fail 'required'");
+      failed += 1;
+    },
+    Err(e) => {
+      println("  ✓ PASS: Correctly rejected empty string for 'required'");
+      passed += 1;
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 2: ValidateRule - min:N and max:N
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 2] ValidateRule - 'min:N' and 'max:N'");
+  let okMin = ValidateRule("aurang", "min:4", "tag");
+  match okMin {
+    Ok(_) => {
+      println("  ✓ PASS: String of length 6 passed min:4");
+      passed += 1;
+    },
+    Err(e) => {
+      println("  ✕ FAIL: Expected Ok for min:4, got: " + e);
+      failed += 1;
+    }
+  };
+
+  let failMin = ValidateRule("hi", "min:4", "tag");
+  match failMin {
+    Ok(_) => {
+      println("  ✕ FAIL: String of length 2 should fail min:4");
+      failed += 1;
+    },
+    Err(e) => {
+      println("  ✓ PASS: String of length 2 rejected by min:4");
+      passed += 1;
+    }
+  };
+
+  let okMax = ValidateRule("short", "max:10", "bio");
+  match okMax {
+    Ok(_) => {
+      println("  ✓ PASS: String passed max:10");
+      passed += 1;
+    },
+    Err(e) => {
+      println("  ✕ FAIL: " + e);
+      failed += 1;
+    }
+  };
+
+  let failMax = ValidateRule("this is way too long for max ten", "max:10", "bio");
+  match failMax {
+    Ok(_) => {
+      println("  ✕ FAIL: String should exceed max:10");
+      failed += 1;
+    },
+    Err(e) => {
+      println("  ✓ PASS: String exceeded max:10 correctly rejected");
+      passed += 1;
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 3: ValidateRule - email
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 3] ValidateRule - 'email'");
+  let okEmail = ValidateRule("aura@gonic.dev", "email", "email");
+  match okEmail {
+    Ok(_) => {
+      println("  ✓ PASS: Valid email accepted");
+      passed += 1;
+    },
+    Err(e) => {
+      println("  ✕ FAIL: Valid email rejected: " + e);
+      failed += 1;
+    }
+  };
+
+  let failEmail = ValidateRule("invalid-email-address", "email", "email");
+  match failEmail {
+    Ok(_) => {
+      println("  ✕ FAIL: Invalid email should fail");
+      failed += 1;
+    },
+    Err(e) => {
+      println("  ✓ PASS: Invalid email correctly rejected");
+      passed += 1;
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 4: ValidateSchema - Multi-field object validation
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 4] ValidateSchema - Multi-field schema");
+  let rules: []FieldRule = [
+    { field: "username", rule: "required,min:3" },
+    { field: "email", rule: "required,email" }
+  ];
+
+  let validPayload: Any = {
+    username: "gopher",
+    email: "gopher@golang.org"
+  };
+
+  let schemaRes1 = ValidateSchema(validPayload, rules);
+  match schemaRes1 {
+    Ok(_) => {
+      println("  ✓ PASS: Valid payload satisfied full schema");
+      passed += 1;
+    },
+    Err(e) => {
+      println("  ✕ FAIL: Valid payload failed schema: " + e);
+      failed += 1;
+    }
+  };
+
+  let invalidPayload: Any = {
+    username: "ab", // violates min:3
+    email: "not-an-email"
+  };
+
+  let schemaRes2 = ValidateSchema(invalidPayload, rules);
+  match schemaRes2 {
+    Ok(_) => {
+      println("  ✕ FAIL: Invalid payload should fail schema");
+      failed += 1;
+    },
+    Err(e) => {
+      println("  ✓ PASS: Invalid payload rejected by schema with: " + e);
+      passed += 1;
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 5: JSONBinding Interface Name
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 5] JSONBinding Structural Interface");
+  let b = NewJSONBinding();
+  if (b.Name() == "json") {
+    println("  ✓ PASS: JSONBinding Name() returned 'json'");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Expected 'json', got " + b.Name());
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Summary
+  // ----------------------------------------------------------------------------
+  println("\n--------------------------------------------------------------------------------");
+  println(`  📊 RESULTS: ${passed} PASSED | ${failed} FAILED`);
+  println("================================================================================");
+}

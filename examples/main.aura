@@ -1,0 +1,231 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// examples/main.aura - Comprehensive Production Showcase Server
+// ==============================================================================
+
+import { Default, Version, PongHandler } from "../gin";
+import { GinContext } from "../context";
+import { BasicAuth } from "../auth";
+import { CORS } from "../cors";
+import { FieldRule, ValidateSchema } from "../binding";
+import { StreamChannel, EventHub, NewEventHub, Async } from "../channels";
+
+export struct Product {
+  id: String,
+  title: String,
+  price: Float,
+  inStock: Bool
+};
+
+export fn main(): Unit => {
+  println("================================================================================");
+  println("   🚀 GIN WEB FRAMEWORK FOR AURA (v" + Version() + ")");
+  println("   High-Performance HTTP Multiplexer with Native CSP & Radix Trie Router");
+  println("================================================================================");
+
+  // Initialize Default engine (with Logger & Recovery middleware)
+  let mut r = Default();
+
+  // Attach CORS middleware
+  r.Use(CORS());
+
+  // Global EventHub for real-time messaging
+  let mut hub = NewEventHub();
+
+  // In-memory catalog
+  let mut catalog: []Product = [
+    { id: "p1", title: "Aura Compiler Book", price: 29.99, inStock: true },
+    { id: "p2", title: "Mechanical Keyboard", price: 149.50, inStock: true },
+    { id: "p3", title: "Ultra-Wide Monitor", price: 599.00, inStock: false }
+  ];
+
+  // ----------------------------------------------------------------------------
+  // Root & Health Checks
+  // ----------------------------------------------------------------------------
+  r.GET("/ping", PongHandler);
+
+  r.GET("/", fn(c: GinContext): Unit => {
+    c.JSON(StatusOK, {
+      framework: "Gin-Gonic (Aura Edition)",
+      version: Version(),
+      runtime: "Aura Native / JS Engine",
+      docs: "https://github.com/gin-gonic/gin",
+      routes_count: len(r.Routes())
+    });
+  });
+
+  // ----------------------------------------------------------------------------
+  // Response Formats Showcase (JSON, HTML, XML, YAML, String)
+  // ----------------------------------------------------------------------------
+  r.GET("/formats/html", fn(c: GinContext): Unit => {
+    c.HTML(StatusOK, "<h1>Gin for Aura</h1><p>Blazing fast web microservices.</p>");
+  });
+
+  r.GET("/formats/xml", fn(c: GinContext): Unit => {
+    c.XML(StatusOK, "<response><status>ok</status><service>gin-aura</service></response>");
+  });
+
+  r.GET("/formats/yaml", fn(c: GinContext): Unit => {
+    c.YAML(StatusOK, "service: gin-aura\nstatus: operational\nport: 8080\n");
+  });
+
+  r.GET("/formats/text", fn(c: GinContext): Unit => {
+    c.String(StatusOK, "Plain text response from Aura Gin");
+  });
+
+  r.GET("/formats/redirect", fn(c: GinContext): Unit => {
+    c.Redirect(StatusFound, "/");
+  });
+
+  // ----------------------------------------------------------------------------
+  // API v1 Router Group (CRUD Catalog)
+  // ----------------------------------------------------------------------------
+  let mut v1 = r.Group("/api/v1");
+
+  v1.GET("/products", fn(c: GinContext): Unit => {
+    let inStockOnly = c.Query("instock");
+    let mut results: []Product = [];
+
+    for item in catalog {
+      if inStockOnly == "true" {
+        if item.inStock {
+          results = append(results, item);
+        }
+      } else {
+        results = append(results, item);
+      }
+    }
+
+    c.JSON(StatusOK, {
+      count: len(results),
+      products: results
+    });
+  });
+
+  v1.GET("/products/:id", fn(c: GinContext): Unit => {
+    let targetId = c.Param("id");
+    let mut matched: Option<Product> = None;
+
+    for p in catalog {
+      if p.id == targetId {
+        matched = Some(p);
+        break;
+      }
+    }
+
+    match matched {
+      Some(prod) => c.JSON(StatusOK, prod),
+      None => c.JSON(StatusNotFound, { error: "Product not found", id: targetId })
+    };
+  });
+
+  let productRules: []FieldRule = [
+    { field: "title", rule: "required,min:3" }
+  ];
+
+  v1.POST("/products", fn(c: GinContext): Unit => {
+    let bindRes = c.BindJSON();
+    match bindRes {
+      Ok(data) => {
+        let valRes = ValidateSchema(data, productRules);
+        match valRes {
+          Ok(_) => {
+            let newProd: Product = {
+              id: `p${len(catalog) + 1}`,
+              title: `${data.title}`,
+              price: 49.99,
+              inStock: true
+            };
+            catalog = append(catalog, newProd);
+
+            // Broadcast newly created product to live subscribers
+            hub.Broadcast(`New product added: ${newProd.title}`);
+
+            c.JSON(StatusCreated, newProd);
+          },
+          Err(valErr) => {
+            c.JSON(StatusBadRequest, { error: valErr });
+          }
+        };
+      },
+      Err(err) => {
+        c.JSON(StatusBadRequest, { error: "Invalid JSON", details: err });
+      }
+    };
+  });
+
+  // ----------------------------------------------------------------------------
+  // Protected Admin Group
+  // ----------------------------------------------------------------------------
+  let adminAccounts: Any = {
+    "admin": "pass123",
+    "root": "toor"
+  };
+
+  let mut admin = r.Group("/admin");
+  admin.Use(BasicAuth(adminAccounts));
+
+  admin.GET("/routes", fn(c: GinContext): Unit => {
+    c.JSON(StatusOK, {
+      total_routes: len(r.Routes()),
+      routes: r.Routes()
+    });
+  });
+
+  admin.GET("/metrics", fn(c: GinContext): Unit => {
+    let user = c.GetString("user");
+    c.JSON(StatusOK, {
+      authenticated_user: user,
+      uptime_seconds: 42,
+      active_connections: 1
+    });
+  });
+
+  // ----------------------------------------------------------------------------
+  // Real-time Concurrency & CSP Streaming Group
+  // ----------------------------------------------------------------------------
+  let mut realtime = r.Group("/realtime");
+
+  realtime.GET("/stream", fn(c: GinContext): Unit => {
+    let ch: Channel<String> = Channel.make<String>(16);
+    hub.Subscribe(ch);
+    StreamChannel(&c, ch);
+  });
+
+  realtime.POST("/async-job", fn(c: GinContext): Unit => {
+    Async(&c, fn(asyncCtx: *GinContext): Unit => {
+      println("\n[Async Fiber] Heavy computation executing concurrently...");
+      sleep(2000);
+      println("[Async Fiber] Job completed successfully.");
+    });
+
+    c.JSON(StatusAccepted, {
+      message: "Job dispatched to background CSP fiber"
+    });
+  });
+
+  // ----------------------------------------------------------------------------
+  // Custom 404 & 405 Handlers
+  // ----------------------------------------------------------------------------
+  r.NoRoute([
+    fn(c: GinContext): Unit => {
+      c.JSON(StatusNotFound, {
+        error: "Route Not Found",
+        path: c.Request.url,
+        framework: "Gin Aura"
+      });
+    }
+  ]);
+
+  // Display registered routes
+  println("\nRegistered Endpoints:");
+  for route in r.Routes() {
+    println(`  • [${route.method}] ${route.path}`);
+  }
+
+  println("\n================================================================================");
+  println("Server listening on http://localhost:8080");
+  println("================================================================================");
+
+  r.Run(":8080");
+}

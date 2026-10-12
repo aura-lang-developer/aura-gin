@@ -1,0 +1,33 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// routergroup.aura - Prefix Routing & Path Joining
+// ==============================================================================
+
+// Computes the absolute joined path between a base path and a relative path
+export fn JoinPaths(absolutePath: String, relativePath: String): String => {
+  if absolutePath == "" || absolutePath == "/" {
+    if relativePath == "" || relativePath == "/" {
+      return "/";
+    }
+    if relativePath.startsWith("/") {
+      return relativePath;
+    }
+    return `/${relativePath}`;
+  }
+
+  if relativePath == "" || relativePath == "/" {
+    return absolutePath;
+  }
+
+  let mut base = absolutePath;
+  if base.endsWith("/") {
+    base = base[0: len(base) - 1];
+  }
+
+  let mut rel = relativePath;
+  if !rel.startsWith("/") {
+    rel = `/${rel}`;
+  }
+
+  `${base}${rel}`
+}

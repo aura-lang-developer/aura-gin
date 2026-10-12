@@ -1,0 +1,83 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// cors.aura - Cross-Origin Resource Sharing (CORS) Middleware
+// ==============================================================================
+
+import { GinContext } from "./context";
+
+// Configuration settings for CORS middleware
+export struct CORSConfig {
+  allowOrigins: []String,
+  allowMethods: []String,
+  allowHeaders: []String,
+  exposeHeaders: []String,
+  allowCredentials: Bool,
+  maxAge: Int
+};
+
+// Default CORS configuration allowing all origins and standard methods
+export fn DefaultCORSConfig(): CORSConfig => {
+  {
+    allowOrigins: ["*"],
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+    allowHeaders: ["Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-Correlation-ID"],
+    exposeHeaders: ["Content-Length", "Content-Type"],
+    allowCredentials: true,
+    maxAge: 86400
+  }
+}
+
+// CORSWithConfig returns a CORS middleware configured with custom options
+export fn CORSWithConfig(conf: CORSConfig): Any => {
+  let originsJoined = conf.allowOrigins.join(", ");
+  let methodsJoined = conf.allowMethods.join(", ");
+  let headersJoined = conf.allowHeaders.join(", ");
+  let exposeJoined = conf.exposeHeaders.join(", ");
+  let maxAgeStr = `${conf.maxAge}`;
+
+  fn(c: *GinContext): Unit => {
+    let reqOrigin = c.GetHeader("Origin");
+    let mut chosenOrigin = originsJoined;
+
+    if len(conf.allowOrigins) == 1 && conf.allowOrigins[0] == "*" {
+      chosenOrigin = "*";
+    } else if reqOrigin != "" {
+      for o in conf.allowOrigins {
+        if o == reqOrigin {
+          chosenOrigin = reqOrigin;
+          break;
+        }
+      }
+    }
+
+    c.Header("Access-Control-Allow-Origin", chosenOrigin);
+    c.Header("Access-Control-Allow-Methods", methodsJoined);
+    c.Header("Access-Control-Allow-Headers", headersJoined);
+
+    if len(conf.exposeHeaders) > 0 {
+      c.Header("Access-Control-Expose-Headers", exposeJoined);
+    }
+
+    if conf.allowCredentials {
+      c.Header("Access-Control-Allow-Credentials", "true");
+    }
+
+    if conf.maxAge > 0 {
+      c.Header("Access-Control-Max-Age", maxAgeStr);
+    }
+
+    // Handle preflight OPTIONS request
+    let method = if c.Request != null && c.Request != undefined && c.Request.method != null && c.Request.method != undefined { `${c.Request.method}` } else { "" };
+    if method == "OPTIONS" {
+      c.AbortWithStatus(StatusNoContent);
+      return ();
+    }
+
+    c.Next();
+  }
+}
+
+// Default CORS middleware instance
+export fn CORS(): Any => {
+  CORSWithConfig(DefaultCORSConfig())
+}

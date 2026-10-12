@@ -1,0 +1,169 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// tests/middleware_test.aura - Unit Tests for Middleware Ecosystem
+// ==============================================================================
+
+import { NewContext } from "../context";
+import { Logger, DefaultLoggerConfig, LoggerWithConfig, ColorForStatus, ColorForMethod } from "../logger";
+import { Recovery, CustomRecovery } from "../recovery";
+import { CORS, DefaultCORSConfig, CORSWithConfig } from "../cors";
+import { BasicAuth, DecodeBase64 } from "../auth";
+
+export fn main(): Unit => {
+  let mut passed = 0;
+  let mut failed = 0;
+
+  println("================================================================================");
+  println("  🧪 GIN AURA - MIDDLEWARE UNIT TESTS");
+  println("================================================================================");
+
+  // ----------------------------------------------------------------------------
+  // Test 1: Logger Colors & ANSI Codes
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 1] Logger ANSI Status & Method Coloring");
+  let okColor = ColorForStatus(200);
+  let redColor = ColorForStatus(500);
+  let blueColor = ColorForMethod("GET");
+
+  if (okColor.includes("42m") && redColor.includes("41m") && blueColor.includes("44m")) {
+    println("  ✓ PASS: Correct ANSI color codes generated for status & method");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Logger color generation mismatch");
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 2: CORS Middleware - Preflight & Headers
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 2] CORS Middleware");
+  let corsMw = CORS();
+
+  let mut headersSet: Any = {};
+  let mockCorsReq: Any = {
+    method: "OPTIONS",
+    url: "/api/data",
+    getHeader: fn(k: String): String => {
+      if (k == "Origin") { "https://frontend.app" } else { "" }
+    }
+  };
+  let mockCorsRes: Any = {
+    setHeader: fn(k: String, v: String): Unit => {
+      headersSet[k] = v;
+    },
+    writeHead: fn(s: Int): Unit => (),
+    end: fn(d: Any): Unit => ()
+  };
+
+  let mut cCors = NewContext(mockCorsReq, mockCorsRes, null);
+  corsMw(cCors);
+
+  if (cCors.IsAborted() && cCors.statusCode == StatusNoContent) {
+    println("  ✓ PASS: CORS preflight OPTIONS request aborted with 204 No Content");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: CORS preflight was not aborted with 204");
+    failed += 1;
+  };
+
+  if (headersSet["Access-Control-Allow-Origin"] == "*" && headersSet["Access-Control-Allow-Credentials"] == "true") {
+    println("  ✓ PASS: Access-Control-Allow-Origin and Credentials headers injected");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: CORS headers missing");
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 3: Base64 Decoder & BasicAuth Middleware
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 3] BasicAuth & Base64 Decoding");
+  // "admin:secret123" in base64 is "YWRtaW46c2VjcmV0MTIz"
+  let decoded = DecodeBase64("YWRtaW46c2VjcmV0MTIz");
+  if (decoded == "admin:secret123") {
+    println("  ✓ PASS: DecodeBase64 correctly parsed 'admin:secret123'");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Base64 decode mismatch: " + decoded);
+    failed += 1;
+  };
+
+  let accounts: Any = {
+    "admin": "secret123",
+    "developer": "aura2026"
+  };
+  let authMw = BasicAuth(accounts);
+
+  // Subtest 3a: Missing Authorization header
+  let mut noAuthReq: Any = {
+    method: "GET",
+    url: "/admin/metrics",
+    getHeader: fn(k: String): String => ""
+  };
+  let mut cNoAuth = NewContext(noAuthReq, mockCorsRes, null);
+  authMw(cNoAuth);
+
+  if (cNoAuth.IsAborted() && cNoAuth.statusCode == StatusUnauthorized) {
+    println("  ✓ PASS: Missing auth aborted with 401 Unauthorized");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Expected 401 for missing auth");
+    failed += 1;
+  };
+
+  // Subtest 3b: Valid Authorization header
+  let mut validAuthReq: Any = {
+    method: "GET",
+    url: "/admin/metrics",
+    getHeader: fn(k: String): String => {
+      if (k == "Authorization") { "Basic YWRtaW46c2VjcmV0MTIz" } else { "" }
+    }
+  };
+  let mut cValidAuth = NewContext(validAuthReq, mockCorsRes, null);
+  authMw(cValidAuth);
+
+  let authenticatedUser = cValidAuth.GetString("user");
+  if (!cValidAuth.IsAborted() && authenticatedUser == "admin") {
+    println("  ✓ PASS: Valid BasicAuth credentials authenticated as 'admin'");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Expected user 'admin', got: " + authenticatedUser);
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 4: Recovery Middleware & CustomRecovery
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 4] Panic Recovery Middleware");
+  let mut customPanicHandled = false;
+  let customRecoveryMw = CustomRecovery(fn(c: *GinContext, err: Any): Unit => {
+    customPanicHandled = true;
+    c.AbortWithStatus(StatusInternalServerError);
+  });
+
+  let mut panicReq: Any = {
+    method: "GET",
+    url: "/panic-test",
+    getHeader: fn(k: String): String => ""
+  };
+  let mut cPanic = NewContext(panicReq, mockCorsRes, null);
+
+  // Normal flow without panic: handler executes Next
+  let recoveryMw = Recovery();
+  recoveryMw(cPanic);
+
+  if (!cPanic.IsAborted()) {
+    println("  ✓ PASS: Recovery middleware seamlessly passed normal request");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Recovery aborted normal request unexpectedly");
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Summary
+  // ----------------------------------------------------------------------------
+  println("\n--------------------------------------------------------------------------------");
+  println(`  📊 RESULTS: ${passed} PASSED | ${failed} FAILED`);
+  println("================================================================================");
+}

@@ -1,0 +1,115 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// binding.aura - Request Data Binding & Field Validator
+// ==============================================================================
+
+import { GinContext } from "./context";
+import { Binding } from "./types";
+
+// Result of model validation
+export type ValidationResult = Result<Unit, String>;
+
+// Validates a string or numeric value against a validation tag rule
+// Supported rules: "required", "min:N", "max:N", "email"
+export fn ValidateRule(val: Any, rule: String, fieldName: String): Result<Unit, String> => {
+  let valStr = if val != null { `${val}` } else { "" };
+
+  if rule == "required" {
+    if val == null || valStr.trim() == "" {
+      return Err(`Field '${fieldName}' is required`);
+    }
+    return Ok(());
+  }
+
+  if rule.startsWith("min:") {
+    let minLimit = parseInt(rule.substring(4), 10);
+    if len(valStr) < minLimit {
+      return Err(`Field '${fieldName}' must be at least ${minLimit} characters long`);
+    }
+    return Ok(());
+  }
+
+  if rule.startsWith("max:") {
+    let maxLimit = parseInt(rule.substring(4), 10);
+    if len(valStr) > maxLimit {
+      return Err(`Field '${fieldName}' must not exceed ${maxLimit} characters`);
+    }
+    return Ok(());
+  }
+
+  if rule == "email" {
+    if !valStr.includes("@") || !valStr.includes(".") {
+      return Err(`Field '${fieldName}' must be a valid email address`);
+    }
+    return Ok(());
+  }
+
+  Ok(())
+}
+
+// Represents a validation constraint on a specific field
+export struct FieldRule {
+  field: String,
+  rule: String
+};
+
+// Validates object fields against a list of FieldRule constraints
+export fn ValidateSchema(obj: Any, rules: []FieldRule): Result<Unit, String> => {
+  if obj == null {
+    return Err("Request body is empty");
+  }
+
+  let mut validationErr: Option<String> = None;
+
+  for r in rules {
+    let val = obj[r.field];
+    let parts = r.rule.split(",");
+    for p in parts {
+      let trimmed = p.trim();
+      let res = ValidateRule(val, trimmed, r.field);
+      match res {
+        Ok(_) => (),
+        Err(e) => {
+          validationErr = Some(e);
+        }
+      };
+    }
+  }
+
+  match validationErr {
+    Some(err) => Err(err),
+    None => Ok(())
+  }
+}
+
+// Struct Validator binding implementation
+export struct JSONBinding {};
+
+export fn NewJSONBinding(): JSONBinding => {
+  {}
+}
+
+
+fn (b: JSONBinding) Name(): String => {
+  "json"
+}
+
+fn (b: JSONBinding) Bind(req: Any, rules: []FieldRule): Result<Any, String> => {
+  let raw = if req.rawBody != null { `${req.rawBody}` } else { "" };
+  if raw == "" {
+    return Err("Empty body payload");
+  }
+  let parsed = JSON.parse(raw);
+  if parsed == null {
+    return Err("Malformed JSON payload");
+  }
+  if len(rules) > 0 {
+    let valRes = ValidateSchema(parsed, rules);
+    match valRes {
+      Ok(_) => Ok(parsed),
+      Err(err) => Err(err)
+    }
+  } else {
+    Ok(parsed)
+  }
+}

@@ -1,0 +1,668 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// context.aura - gin.Context Request & Response Lifecycle Handler
+// ==============================================================================
+
+import {
+  Param,
+  Params,
+  H,
+  GinError
+} from "./types";
+
+let MIMEJSON = "application/json";
+let MIMEPlain = "text/plain";
+let MIMEHTML = "text/html";
+let MIMEXML = "application/xml";
+let MIMEYAML = "application/x-yaml";
+let ErrorTypeAny = 15;
+
+
+// The Context struct is the heart of Gin-Gonic.
+// It wraps the HTTP request and response writer, coordinates the middleware
+// handler chain, stores request-scoped metadata, extracts params, and renders responses.
+export struct GinContext {
+  Request: Any,
+  Writer: Any,
+  Params: Params,
+  handlers: []Any,
+  index: Int,
+  fullPath: String,
+  engine: Any,
+  Keys: Any,
+  Errors: []GinError,
+  aborted: Bool,
+  statusCode: Int,
+  sameSite: String,
+  rawBody: String
+};
+
+// Creates a new Context instance
+export fn NewContext(req: Any, res: Any, engine: Any): GinContext => {
+  let emptyParams: Params = [];
+  let emptyErrors: []GinError = [];
+  let emptyKeys: Any = {};
+
+  {
+    Request: req,
+    Writer: res,
+    Params: emptyParams,
+    handlers: [],
+    index: -1,
+    fullPath: "",
+    engine: engine,
+    Keys: emptyKeys,
+    Errors: emptyErrors,
+    aborted: false,
+    statusCode: 200,
+    sameSite: "Lax",
+    rawBody: ""
+  }
+}
+
+// ------------------------------------------------------------------------------
+// Flow Control & Handler Chain Execution
+// ------------------------------------------------------------------------------
+
+// Executes the remaining pending handlers in the middleware chain
+fn (c: *GinContext) Next(): Unit => {
+  c.index += 1;
+  let total = len(c.handlers);
+  while c.index < total && !c.aborted {
+    let handler = c.handlers[c.index];
+    handler(c);
+    c.index += 1;
+  };
+}
+
+// Halts execution of subsequent handlers in the chain
+fn (c: *GinContext) Abort(): Unit => {
+  c.aborted = true;
+  c.index = len(c.handlers) + 1000;
+}
+
+// Sets the HTTP status code and halts handler execution
+fn (c: *GinContext) AbortWithStatus(code: Int): Unit => {
+  c.Status(code);
+  c.Abort();
+}
+
+// Writes a JSON response with status code and halts handler execution
+fn (c: *GinContext) AbortWithStatusJSON(code: Int, jsonObj: Any): Unit => {
+  c.JSON(code, jsonObj);
+  c.Abort();
+}
+
+// Records an error, sets status code, and halts handler execution
+fn (c: *GinContext) AbortWithError(code: Int, err: String): GinError => {
+  c.Status(code);
+  let gErr = c.Error(err);
+  c.Abort();
+  gErr
+}
+
+// Returns whether the current context execution was aborted
+fn (c: *GinContext) IsAborted(): Bool => {
+  c.aborted
+}
+
+// ------------------------------------------------------------------------------
+// URL Parameters
+// ------------------------------------------------------------------------------
+
+// Returns the value of a URL parameter (e.g. :id or *filepath)
+fn (c: *GinContext) Param(key: String): String => {
+  for p in c.Params {
+    if p.key == key {
+      return p.value;
+    }
+  }
+  ""
+}
+
+// Injects or overrides a URL parameter
+fn (c: *GinContext) AddParam(key: String, value: String): Unit => {
+  let p: Param = { key: key, value: value };
+  c.Params = append(c.Params, p);
+}
+
+// ------------------------------------------------------------------------------
+// Query String Parameters
+// ------------------------------------------------------------------------------
+
+// Returns the value of a query string parameter, or empty string if not present
+fn (c: *GinContext) Query(key: String): String => {
+  let req = c.Request;
+  if req != null && req.query != null {
+    let raw = req.query[key];
+    if raw != null {
+      let str = `${raw}`;
+      if str != "undefined" && str != "null" {
+        return str;
+      }
+    }
+  }
+  ""
+}
+
+
+// Returns the value of a query parameter, or defaultValue if absent
+fn (c: *GinContext) DefaultQuery(key: String, defaultValue: String): String => {
+  let val = c.Query(key);
+  if val != "" {
+    val
+  } else {
+    defaultValue
+  }
+}
+
+// Returns (value, true) if query key exists, or ("", false) if absent
+fn (c: *GinContext) GetQuery(key: String): (String, Bool) => {
+  let val = c.Query(key);
+  if val != "" {
+    (val, true)
+  } else {
+    ("", false)
+  }
+}
+
+// Returns an array of values for a query parameter
+fn (c: *GinContext) QueryArray(key: String): []String => {
+  let val = c.Query(key);
+  if val == "" {
+    let empty: []String = [];
+    return empty;
+  }
+  let parts = val.split(",");
+  parts
+}
+
+// ------------------------------------------------------------------------------
+// PostForm Parameters
+// ------------------------------------------------------------------------------
+
+// Helper to decode URI components
+fn decodeUri(s: String): String => {
+  s.replaceAll("%20", " ").replaceAll("%2F", "/").replaceAll("%3A", ":").replaceAll("%3F", "?").replaceAll("%3D", "=").replaceAll("%26", "&")
+}
+
+// Helper to encode URI components
+fn encodeUri(s: String): String => {
+  s.replaceAll(" ", "%20").replaceAll("&", "%26").replaceAll("=", "%3D")
+}
+
+// Returns the value of a form-encoded POST body parameter
+fn (c: *GinContext) PostForm(key: String): String => {
+  let raw = c.rawBody;
+  if raw == "" {
+    return "";
+  }
+  let pairs = raw.split("&");
+  for pair in pairs {
+    let kv = pair.split("=");
+    if len(kv) >= 2 && kv[0] == key {
+      return decodeUri(kv[1]);
+    }
+  }
+  ""
+}
+
+// Returns PostForm parameter or default value
+fn (c: *GinContext) DefaultPostForm(key: String, defaultValue: String): String => {
+  let val = c.PostForm(key);
+  if val != "" {
+    val
+  } else {
+    defaultValue
+  }
+}
+
+// Returns (value, true) if PostForm key exists, or ("", false)
+fn (c: *GinContext) GetPostForm(key: String): (String, Bool) => {
+  let val = c.PostForm(key);
+  if val != "" {
+    (val, true)
+  } else {
+    ("", false)
+  }
+}
+
+// ------------------------------------------------------------------------------
+// HTTP Headers
+// ------------------------------------------------------------------------------
+
+// Retrieves request header value
+fn (c: *GinContext) GetHeader(key: String): String => {
+  let req = c.Request;
+  if req == null || req == undefined {
+    return "";
+  }
+  if req.getHeader != null && req.getHeader != undefined {
+    let gh = `${req.getHeader(key)}`;
+    if gh != "" && gh != "undefined" && gh != "null" {
+      return gh;
+    }
+  }
+  if req.headers != null && req.headers != undefined {
+    let lowerKey = key.toLowerCase();
+    let raw = req.headers[lowerKey];
+    if raw != null && raw != undefined {
+      let s = `${raw}`;
+      if s != "" && s != "undefined" && s != "null" {
+        return s;
+      }
+    }
+  }
+  ""
+}
+
+
+// Sets a response header on the response writer
+fn (c: *GinContext) Header(key: String, value: String): Unit => {
+  let res = c.Writer;
+  if res != null && res.setHeader != null {
+    res.setHeader(key, value);
+  }
+}
+
+// ------------------------------------------------------------------------------
+// Cookies
+// ------------------------------------------------------------------------------
+
+// Retrieves cookie value by name using Result<String, String>
+fn (c: *GinContext) Cookie(name: String): Result<String, String> => {
+  let cookieHeader = c.GetHeader("Cookie");
+  if cookieHeader == "" {
+    return Err("http: named cookie not present");
+  }
+  let parts = cookieHeader.split(";");
+  for part in parts {
+    let trimmed = part.trim();
+    let eqIdx = trimmed.indexOf("=");
+    if eqIdx > 0 {
+      let k = trimmed.substring(0, eqIdx);
+      let v = trimmed.substring(eqIdx + 1);
+      if k == name {
+        return Ok(v);
+      }
+    }
+  }
+  Err("http: named cookie not present")
+}
+
+// Sets a Set-Cookie header with standard attributes
+fn (c: *GinContext) SetCookie(name: String, value: String, maxAge: Int, path: String, domain: String, secure: Bool, httpOnly: Bool): Unit => {
+  let mut cookieStr = `${name}=${encodeUri(value)}`;
+  if maxAge > 0 {
+    cookieStr = `${cookieStr}; Max-Age=${maxAge}`;
+  } else if maxAge < 0 {
+    cookieStr = `${cookieStr}; Max-Age=0`;
+  }
+  if path != "" {
+    cookieStr = `${cookieStr}; Path=${path}`;
+  } else {
+    cookieStr = `${cookieStr}; Path=/`;
+  }
+  if domain != "" {
+    cookieStr = `${cookieStr}; Domain=${domain}`;
+  }
+  if secure {
+    cookieStr = `${cookieStr}; Secure`;
+  }
+  if httpOnly {
+    cookieStr = `${cookieStr}; HttpOnly`;
+  }
+  if c.sameSite != "" {
+    cookieStr = `${cookieStr}; SameSite=${c.sameSite}`;
+  }
+  c.Header("Set-Cookie", cookieStr);
+}
+
+// Configures SameSite cookie attribute (Strict, Lax, None)
+fn (c: *GinContext) SetSameSite(sameSite: String): Unit => {
+  c.sameSite = sameSite;
+}
+
+// ------------------------------------------------------------------------------
+// Request-Scoped Metadata Storage (c.Keys)
+// ------------------------------------------------------------------------------
+
+// Stores a key-value pair in Context
+fn (c: *GinContext) Set(key: String, value: Any): Unit => {
+  c.Keys[key] = value;
+}
+
+// Retrieves an item from Context wrapped in Option<Any>
+fn (c: *GinContext) Get(key: String): Option<Any> => {
+  if c.Keys[key] != null {
+    Some(c.Keys[key])
+  } else {
+    None
+  }
+}
+
+// Retrieves an item or panics if absent
+fn (c: *GinContext) MustGet(key: String): Any => {
+  match c.Get(key) {
+    Some(v) => v,
+    None => panic(`Key '${key}' does not exist in context`)
+  }
+}
+
+// Retrieves string value from context
+fn (c: *GinContext) GetString(key: String): String => {
+  match c.Get(key) {
+    Some(v) => `${v}`,
+    None => ""
+  }
+}
+
+// Retrieves boolean value from context
+fn (c: *GinContext) GetBool(key: String): Bool => {
+  match c.Get(key) {
+    Some(v) => v == true || `${v}` == "true",
+    None => false
+  }
+}
+
+// Retrieves integer value from context
+fn (c: *GinContext) GetInt(key: String): Int => {
+  match c.Get(key) {
+    Some(v) => parseInt(`${v}`, 10),
+    None => 0
+  }
+}
+
+// Retrieves float value from context
+fn (c: *GinContext) GetFloat(key: String): Float => {
+  match c.Get(key) {
+    Some(v) => parseFloat(`${v}`),
+    None => 0.0
+  }
+}
+
+// ------------------------------------------------------------------------------
+// Response Status & Rendering
+// ------------------------------------------------------------------------------
+
+// Sets the HTTP response status code
+fn (c: *GinContext) Status(code: Int): Unit => {
+  c.statusCode = code;
+}
+
+// Serializes object to JSON and writes response
+fn (c: *GinContext) JSON(code: Int, obj: Any): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", `${MIMEJSON}; charset=utf-8`);
+  let payload = JSON.stringify(obj);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(payload);
+    }
+  }
+}
+
+// Formats JSON with 2-space indentation
+fn (c: *GinContext) IndentedJSON(code: Int, obj: Any): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", `${MIMEJSON}; charset=utf-8`);
+  let payload = JSON.stringify(obj, null, 2);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(payload);
+    }
+  }
+}
+
+// Pure JSON without HTML escaping
+fn (c: *GinContext) PureJSON(code: Int, obj: Any): Unit => {
+  c.JSON(code, obj);
+}
+
+// Serializes to ASCII JSON
+fn (c: *GinContext) AsciiJSON(code: Int, obj: Any): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", `${MIMEJSON}; charset=utf-8`);
+  let raw = JSON.stringify(obj);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(raw);
+    }
+  }
+}
+
+// Writes JSON with anti-hijacking prefix 'while(1);'
+fn (c: *GinContext) SecureJSON(code: Int, obj: Any): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", `${MIMEJSON}; charset=utf-8`);
+  let payload = `while(1);${JSON.stringify(obj)}`;
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(payload);
+    }
+  }
+}
+
+// Writes plain text string
+fn (c: *GinContext) String(code: Int, text: String): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", `${MIMEPlain}; charset=utf-8`);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(text);
+    }
+  }
+}
+
+// Writes HTML content
+fn (c: *GinContext) HTML(code: Int, htmlContent: String): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", `${MIMEHTML}; charset=utf-8`);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(htmlContent);
+    }
+  }
+}
+
+// Writes XML content
+fn (c: *GinContext) XML(code: Int, xmlContent: String): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", `${MIMEXML}; charset=utf-8`);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(xmlContent);
+    }
+  }
+}
+
+// Writes YAML content
+fn (c: *GinContext) YAML(code: Int, yamlContent: String): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", `${MIMEYAML}; charset=utf-8`);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(yamlContent);
+    }
+  }
+}
+
+// Writes raw data with custom content type
+fn (c: *GinContext) Data(code: Int, contentType: String, data: Any): Unit => {
+  c.Status(code);
+  c.Header("Content-Type", contentType);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end(data);
+    }
+  }
+}
+
+// Redirects client to target location (301, 302, 307, 308)
+fn (c: *GinContext) Redirect(code: Int, location: String): Unit => {
+  c.Status(code);
+  c.Header("Location", location);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end("");
+    }
+  }
+}
+
+// ------------------------------------------------------------------------------
+// Request Binding & JSON Parsing
+// ------------------------------------------------------------------------------
+
+// Parses JSON body into Result<Any, String> without aborting
+fn (c: *GinContext) ShouldBindJSON(): Result<Any, String> => {
+  let raw = c.rawBody;
+  if raw == "" {
+    return Ok({});
+  }
+  let parsed = JSON.parse(raw);
+  if parsed == null {
+    Err("Invalid JSON payload")
+  } else {
+    Ok(parsed)
+  }
+}
+
+// Parses JSON body; on error, records error and aborts with 400 Bad Request
+fn (c: *GinContext) BindJSON(): Result<Any, String> => {
+  match c.ShouldBindJSON() {
+    Ok(val) => Ok(val),
+    Err(err) => {
+      c.AbortWithError(StatusBadRequest, err);
+      Err(err)
+    }
+  }
+}
+
+// ------------------------------------------------------------------------------
+// Client & Request Inspection
+// ------------------------------------------------------------------------------
+
+// Returns client IP address
+fn (c: *GinContext) ClientIP(): String => {
+  let forwarded = c.GetHeader("X-Forwarded-For");
+  if forwarded != "" {
+    let parts = forwarded.split(",");
+    return parts[0].trim();
+  }
+  let realIp = c.GetHeader("X-Real-IP");
+  if realIp != "" {
+    return realIp;
+  }
+  let req = c.Request;
+  if req != null && req != undefined && req.socket != null && req.socket != undefined && req.socket.remoteAddress != null && req.socket.remoteAddress != undefined {
+    return `${req.socket.remoteAddress}`;
+  }
+  "127.0.0.1"
+}
+
+// Returns the Request Content-Type header
+fn (c: *GinContext) ContentType(): String => {
+  c.GetHeader("Content-Type")
+}
+
+// Returns the matched full route pattern
+fn (c: *GinContext) FullPath(): String => {
+  c.fullPath
+}
+
+// ------------------------------------------------------------------------------
+// Error Handling
+// ------------------------------------------------------------------------------
+
+// Appends an error to the context error slice
+fn (c: *GinContext) Error(err: String): GinError => {
+  let gErr: GinError = {
+    err: err,
+    errType: ErrorTypeAny,
+    meta: null
+  };
+  c.Errors = append(c.Errors, gErr);
+  gErr
+}
+
+// ------------------------------------------------------------------------------
+// Fiber Concurrency & Streaming
+// ------------------------------------------------------------------------------
+
+// Returns a safe clone of Context for use in background fibers (spawn { ... })
+fn (c: *GinContext) Copy(): GinContext => {
+  let clonedKeys: Any = c.Keys;
+
+  let mut clonedParams: Params = [];
+  for p in c.Params {
+    clonedParams = append(clonedParams, p);
+  }
+
+  {
+    Request: c.Request,
+    Writer: c.Writer,
+    Params: clonedParams,
+    handlers: [],
+    index: len(c.handlers),
+    fullPath: c.fullPath,
+    engine: c.engine,
+    Keys: clonedKeys,
+    Errors: c.Errors,
+    aborted: true,
+    statusCode: c.statusCode,
+    sameSite: c.sameSite,
+    rawBody: c.rawBody
+  }
+}
+
+// Formats and writes a Server-Sent Event (SSE)
+fn (c: *GinContext) SSEvent(name: String, message: Any): Unit => {
+  c.Header("Content-Type", "text/event-stream");
+  c.Header("Cache-Control", "no-cache");
+  let dataStr = `${message}`;
+  let payload = `event: ${name}\ndata: ${dataStr}\n\n`;
+  let res = c.Writer;
+  if res != null && res.write != null {
+    res.write(payload);
+  }
+}

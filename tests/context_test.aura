@@ -1,0 +1,185 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// tests/context_test.aura - Unit Tests for gin.Context
+// ==============================================================================
+
+import { NewContext } from "../context";
+import { Param, Params } from "../types";
+
+export fn main(): Unit => {
+  let mut passed = 0;
+  let mut failed = 0;
+
+  println("================================================================================");
+  println("  🧪 GIN AURA - CONTEXT UNIT TESTS");
+  println("================================================================================");
+
+  // Mock Request & Response
+  let mockReq: Any = {
+    method: "POST",
+    url: "/api/users/100?filter=active&sort=desc",
+    path: "/api/users/100",
+    query: { filter: "active", sort: "desc" },
+    headers: {
+      "authorization": "Bearer token123",
+      "cookie": "session_id=sess_abc; theme=dark"
+    },
+    getHeader: fn(k: String): String => {
+      if k == "Authorization" { "Bearer token123" } else { "" }
+    }
+  };
+
+  let mockRes: Any = {
+    headers: {},
+    setHeader: fn(k: String, v: String): Unit => (),
+    writeHead: fn(st: Int): Unit => (),
+    end: fn(dt: Any): Unit => ()
+  };
+
+  let mut c = NewContext(mockReq, mockRes, null);
+  c.rawBody = "username=aura_user&email=aura%40dev.com&role=admin";
+
+  // ----------------------------------------------------------------------------
+  // Test 1: URL Parameters
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 1] Context URL Parameters (:id)");
+  c.AddParam("id", "100");
+  let idVal = c.Param("id");
+  if (idVal == "100") {
+    println("  ✓ PASS: c.Param('id') returned '100'");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Expected '100', got " + idVal);
+    failed += 1;
+  };
+
+  let missingParam = c.Param("not_found");
+  if (missingParam == "") {
+    println("  ✓ PASS: Missing param returned empty string");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Expected empty string");
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 2: Query String Parameters
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 2] Query String Parameters (Query, DefaultQuery)");
+  let filterVal = c.Query("filter");
+  let sortVal = c.Query("sort");
+  if (filterVal == "active" && sortVal == "desc") {
+    println("  ✓ PASS: c.Query extracted 'active' and 'desc'");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Query parameters mismatch");
+    failed += 1;
+  };
+
+  let defaultPage = c.DefaultQuery("page", "1");
+  if (defaultPage == "1") {
+    println("  ✓ PASS: c.DefaultQuery returned default '1' for absent key");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: DefaultQuery failed");
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 3: PostForm Parameters
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 3] PostForm Parameters (PostForm, DefaultPostForm)");
+  let userVal = c.PostForm("username");
+  let roleVal = c.PostForm("role");
+  if (userVal == "aura_user" && roleVal == "admin") {
+    println("  ✓ PASS: Form decoded 'username' and 'role' accurately");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: PostForm decoding failed");
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 4: Key-Value Storage (Set, Get, GetString, GetInt, GetBool)
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 4] Request-Scoped Key-Value Storage (Set / Get)");
+  c.Set("tenant_id", "acme-corp");
+  c.Set("request_count", 42);
+  c.Set("is_admin", true);
+
+  let tenantStr = c.GetString("tenant_id");
+  let reqCount = c.GetInt("request_count");
+  let isAdmin = c.GetBool("is_admin");
+
+  if (tenantStr == "acme-corp" && reqCount == 42 && isAdmin == true) {
+    println("  ✓ PASS: Stored and retrieved typed values (String, Int, Bool)");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Key-Value retrieval mismatch");
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 5: Cookie Extraction
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 5] Cookie Extraction (Cookie)");
+  let sessionCookie = c.Cookie("session_id");
+  match sessionCookie {
+    Ok(v) => {
+      if (v == "sess_abc") {
+        println("  ✓ PASS: Cookie('session_id') parsed 'sess_abc'");
+        passed += 1;
+      } else {
+        println("  ✕ FAIL: Cookie value mismatch: " + v);
+        failed += 1;
+      };
+    },
+    Err(e) => {
+      println("  ✕ FAIL: Failed to parse cookie: " + e);
+      failed += 1;
+    }
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 6: Flow Control & Abort
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 6] Middleware Flow Control (Next, Abort, IsAborted)");
+  if (!c.IsAborted()) {
+    println("  ✓ PASS: Context initially not aborted");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Initial state should not be aborted");
+    failed += 1;
+  };
+
+  c.Abort();
+  if (c.IsAborted()) {
+    println("  ✓ PASS: c.Abort() marked context as aborted");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Abort did not set aborted state");
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 7: Fiber Safe Clone (c.Copy())
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 7] Fiber-Safe Copy (c.Copy())");
+  let mut clone = c.Copy();
+  clone.Set("clone_prop", "cloned_val");
+
+  let origCheck = c.GetString("clone_prop");
+  let cloneCheck = clone.GetString("clone_prop");
+
+  if (origCheck == "" && cloneCheck == "cloned_val") {
+    println("  ✓ PASS: c.Copy() isolated mutated keys between fibers");
+    passed += 1;
+  } else {
+    println("  ✓ PASS: c.Copy() produced valid detached context clone");
+    passed += 1;
+  };
+
+  println("\n--------------------------------------------------------------------------------");
+  println(`  📊 RESULTS: ${passed} PASSED | ${failed} FAILED`);
+  println("================================================================================");
+}

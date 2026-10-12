@@ -1,0 +1,45 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// recovery.aura - Panic Recovery Middleware with Defer & ErrDefer
+// ==============================================================================
+
+import { GinContext } from "./context";
+
+// Panic handler callback signature
+export type RecoveryFunc = Any;
+
+// Recovery returns a middleware that recovers from any panics, writes a 500
+// Internal Server Error if there was one, and prevents server termination.
+// It leverages Aura's native errdefer mechanism for guaranteed execution on failure.
+export fn Recovery(): Any => {
+  fn(c: *GinContext): Unit => {
+    // ErrDefer runs deterministically if a panic or unhandled error occurs during execution
+    errdefer {
+      println("\n--------------------------------------------------------------------------------");
+      println("[GIN-panic] Panic recovered in HTTP request handler!");
+      println(`  • Path:   ${c.FullPath()}`);
+      println(`  • Client: ${c.ClientIP()}`);
+      println("--------------------------------------------------------------------------------");
+
+      if !c.IsAborted() {
+        c.AbortWithStatusJSON(500, {
+          error: "Internal Server Error",
+          message: "Request recovered from unexpected error."
+        });
+      };
+    };
+
+    c.Next();
+  }
+}
+
+// Custom recovery middleware with user-defined callback
+export fn CustomRecovery(handlePanic: Any): Any => {
+  fn(c: *GinContext): Unit => {
+    errdefer {
+      handlePanic(c, "An error occurred");
+    };
+
+    c.Next();
+  }
+}

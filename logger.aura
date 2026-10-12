@@ -1,0 +1,101 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// logger.aura - High Performance HTTP Request Logger Middleware
+// ==============================================================================
+
+import { GinContext } from "./context";
+
+
+
+// Formats HTTP status code with ANSI background colors
+export fn ColorForStatus(code: Int): String => {
+  if (code >= 200 && code < 300) {
+    "\u001b[97;42m" // Green
+  } else if (code >= 300 && code < 400) {
+    "\u001b[90;47m" // White
+  } else if (code >= 400 && code < 500) {
+    "\u001b[90;43m" // Yellow
+  } else {
+    "\u001b[97;41m" // Red
+  }
+}
+
+// Formats HTTP method with ANSI background colors
+export fn ColorForMethod(method: String): String => {
+  if method == "GET" {
+    "\u001b[97;44m" // Blue
+  } else if method == "POST" {
+    "\u001b[97;46m" // Cyan
+  } else if method == "PUT" {
+    "\u001b[90;43m" // Yellow
+  } else if method == "DELETE" {
+    "\u001b[97;41m" // Red
+  } else if method == "PATCH" {
+    "\u001b[97;42m" // Green
+  } else {
+    "\u001b[90;47m" // White
+  }
+}
+
+// Configuration options for Logger middleware
+export struct LoggerConfig {
+  skipPaths: []String,
+  enableColors: Bool
+};
+
+export fn DefaultLoggerConfig(): LoggerConfig => {
+  let empty: []String = [];
+  {
+    skipPaths: empty,
+    enableColors: true
+  }
+}
+
+// Logger middleware with custom configuration
+export fn LoggerWithConfig(conf: LoggerConfig): Any => {
+  fn(c: *GinContext): Unit => {
+    let start = time.now();
+
+    // Extract path and check skip list
+    let path = if c.Request != null && c.Request != undefined && c.Request.url != null && c.Request.url != undefined { `${c.Request.url}` } else { "/" };
+    for skip in conf.skipPaths {
+      if path == skip {
+        c.Next();
+        return ();
+      }
+    }
+
+    // Process pending handlers
+    c.Next();
+
+    // Calculate latency
+    let latencyMs = time.now() - start;
+    let clientIp = c.ClientIP();
+    let method = if c.Request != null && c.Request != undefined && c.Request.method != null && c.Request.method != undefined { `${c.Request.method}` } else { "GET" };
+    let status = c.statusCode;
+
+    // Format error message if errors were registered
+    let mut errStr = "";
+    if len(c.Errors) > 0 {
+      let mut errMsgs: []String = [];
+      for e in c.Errors {
+        errMsgs = append(errMsgs, e.err);
+      }
+      errStr = ` | Error: ${errMsgs.join("; ")}`;
+    }
+
+    if conf.enableColors {
+      let statusColor = ColorForStatus(status);
+      let methodColor = ColorForMethod(method);
+      let reset = "\u001b[0m";
+      println(`[GIN] ${time.isoString()} | ${statusColor} ${status} ${reset} |   ${latencyMs}ms | ${clientIp} | ${methodColor} ${method} ${reset} "${path}"${errStr}`);
+    } else {
+      println(`[GIN] ${time.isoString()} | ${status} |   ${latencyMs}ms | ${clientIp} | ${method} "${path}"${errStr}`);
+    }
+  }
+}
+
+// Default Logger middleware instance
+export fn Logger(): Any => {
+  LoggerWithConfig(DefaultLoggerConfig())
+}

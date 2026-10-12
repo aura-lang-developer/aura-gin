@@ -1,0 +1,189 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// examples/rest_api.aura - Full-Featured REST API with CRUD & Validation
+// ==============================================================================
+
+import { Default } from "../gin";
+import { GinContext } from "../context";
+import { FieldRule, ValidateSchema } from "../binding";
+
+// User entity model
+export struct UserItem {
+  id: String,
+  name: String,
+  email: String,
+  role: String
+};
+
+export fn main(): Unit => {
+  let mut r = Default();
+
+  // In-memory data store for demonstration
+  let mut db: []UserItem = [
+    { id: "1", name: "Alice Smith", email: "alice@aura.dev", role: "admin" },
+    { id: "2", name: "Bob Jones", email: "bob@aura.dev", role: "developer" }
+  ];
+
+  // Validation rules for user payload
+  let userValidationRules: []FieldRule = [
+    { field: "name", rule: "required,min:2" },
+    { field: "email", rule: "required,email" },
+    { field: "role", rule: "required" }
+  ];
+
+  // REST API v1 Group
+  let mut v1 = r.Group("/api/v1");
+
+  // 1. LIST all items with pagination query params (e.g. ?limit=10&page=1)
+  v1.GET("/users", fn(c: GinContext): Unit => {
+    let limit = c.DefaultQuery("limit", "10");
+    let roleFilter = c.Query("role");
+
+    let mut filtered: []UserItem = [];
+    for u in db {
+      if roleFilter == "" || u.role == roleFilter {
+        filtered = append(filtered, u);
+      }
+    }
+
+    c.JSON(StatusOK, {
+      total: len(filtered),
+      limit: limit,
+      users: filtered
+    });
+  });
+
+  // 2. GET item by ID (:id parameter)
+  v1.GET("/users/:id", fn(c: GinContext): Unit => {
+    let targetId = c.Param("id");
+    let mut found: Option<UserItem> = None;
+
+    for u in db {
+      if u.id == targetId {
+        found = Some(u);
+        break;
+      }
+    }
+
+    match found {
+      Some(user) => {
+        c.JSON(StatusOK, user);
+      },
+      None => {
+        c.JSON(StatusNotFound, {
+          error: "User not found",
+          id: targetId
+        });
+      }
+    };
+  });
+
+  // 3. CREATE item with JSON Binding & Schema Validation
+  v1.POST("/users", fn(c: GinContext): Unit => {
+    let bindRes = c.BindJSON();
+    match bindRes {
+      Ok(data) => {
+        // Validate payload against schema rules
+        let valRes = ValidateSchema(data, userValidationRules);
+        match valRes {
+          Ok(_) => {
+            let nextId = `${len(db) + 1}`;
+            let newUser: UserItem = {
+              id: nextId,
+              name: `${data.name}`,
+              email: `${data.email}`,
+              role: `${data.role}`
+            };
+            db = append(db, newUser);
+
+            c.JSON(StatusCreated, {
+              message: "User created successfully",
+              user: newUser
+            });
+          },
+          Err(valErr) => {
+            c.JSON(StatusBadRequest, {
+              error: "Validation failed",
+              details: valErr
+            });
+          }
+        };
+      },
+      Err(parseErr) => {
+        c.JSON(StatusBadRequest, {
+          error: "Malformed JSON payload",
+          details: parseErr
+        });
+      }
+    };
+  });
+
+  // 4. UPDATE item by ID (:id parameter)
+  v1.PUT("/users/:id", fn(c: GinContext): Unit => {
+    let targetId = c.Param("id");
+    let bindRes = c.BindJSON();
+
+    match bindRes {
+      Ok(data) => {
+        let mut updated = false;
+        let mut updatedUser: Option<UserItem> = None;
+
+        for i, u in db {
+          if u.id == targetId {
+            let uName = if data.name != null { `${data.name}` } else { u.name };
+            let uEmail = if data.email != null { `${data.email}` } else { u.email };
+            let uRole = if data.role != null { `${data.role}` } else { u.role };
+
+            let modified: UserItem = {
+              id: targetId,
+              name: uName,
+              email: uEmail,
+              role: uRole
+            };
+            db[i] = modified;
+            updatedUser = Some(modified);
+            updated = true;
+            break;
+          }
+        }
+
+        if updated {
+          match updatedUser {
+            Some(u) => c.JSON(StatusOK, { message: "User updated", user: u }),
+            None => ()
+          };
+        } else {
+          c.JSON(StatusNotFound, { error: "User not found", id: targetId });
+        }
+      },
+      Err(e) => {
+        c.JSON(StatusBadRequest, { error: e });
+      }
+    };
+  });
+
+  // 5. DELETE item by ID (:id parameter)
+  v1.DELETE("/users/:id", fn(c: GinContext): Unit => {
+    let targetId = c.Param("id");
+    let mut found = false;
+    let mut nextDb: []UserItem = [];
+
+    for u in db {
+      if u.id == targetId {
+        found = true;
+      } else {
+        nextDb = append(nextDb, u);
+      }
+    }
+
+    if found {
+      db = nextDb;
+      c.JSON(StatusOK, { message: "User deleted successfully", id: targetId });
+    } else {
+      c.JSON(StatusNotFound, { error: "User not found", id: targetId });
+    }
+  });
+
+  println("Starting Gin REST API server on :8080...");
+  r.Run(":8080");
+}

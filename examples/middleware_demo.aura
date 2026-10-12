@@ -1,0 +1,75 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// examples/middleware_demo.aura - Middleware Pipelines, Auth & ErrDefer Recovery
+// ==============================================================================
+
+import { New, Default } from "../gin";
+import { GinContext } from "../context";
+import { Logger } from "../logger";
+import { Recovery } from "../recovery";
+import { CORS, CORSWithConfig } from "../cors";
+import { BasicAuth } from "../auth";
+
+export fn main(): Unit => {
+  // Create blank engine without default middleware
+  let mut r = New();
+
+  // 1. Attach standard Logger and Recovery middleware
+  r.Use(Logger());
+  r.Use(Recovery());
+
+  // 2. Attach CORS middleware with permissive cross-origin headers
+  r.Use(CORS());
+
+  // 3. Custom Request ID Middleware
+  r.Use(fn(c: GinContext): Unit => {
+    let reqId = `req_${time.now()}`;
+    c.Set("request_id", reqId);
+    c.Header("X-Request-ID", reqId);
+    c.Next();
+  });
+
+  // Public endpoint
+  r.GET("/public/info", fn(c: GinContext): Unit => {
+    let reqId = c.GetString("request_id");
+    c.JSON(StatusOK, {
+      access: "public",
+      request_id: reqId,
+      timestamp: time.isoString()
+    });
+  });
+
+  // 4. Protected Admin Router Group with BasicAuth middleware
+  let accounts: Any = {
+    "admin": "supersecret",
+    "auditor": "audit2026"
+  };
+
+  let mut adminGroup = r.Group("/admin");
+  adminGroup.Use(BasicAuth(accounts));
+
+  adminGroup.GET("/dashboard", fn(c: GinContext): Unit => {
+    let currentUser = c.GetString("user");
+    c.JSON(StatusOK, {
+      message: `Welcome to the Admin Dashboard, ${currentUser}!`,
+      system_status: "healthy",
+      memory_mb: 128
+    });
+  });
+
+  adminGroup.GET("/secrets", fn(c: GinContext): Unit => {
+    c.JSON(StatusOK, {
+      api_keys: ["key_prod_abc123", "key_backup_xyz789"]
+    });
+  });
+
+  // 5. Panic demonstration endpoint (gracefully recovered by errdefer in Recovery middleware)
+  r.GET("/simulate-panic", fn(c: GinContext): Unit => {
+    println("[Demonstration] Triggering unexpected error in handler...");
+    // Intentional panic / error recovered gracefully
+    panic("Simulated database connection failure!");
+  });
+
+  println("Starting Gin Middleware Demo server on :8080...");
+  r.Run(":8080");
+}

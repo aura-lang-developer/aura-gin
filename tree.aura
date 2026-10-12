@@ -1,0 +1,205 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// tree.aura - High-Performance Radix Trie Router
+// ==============================================================================
+
+import {
+  Param,
+  Params,
+  MatchResult,
+  MatchedRoute,
+  RouteNotFound,
+  NodeType,
+  NodeStatic,
+  NodeParam,
+  NodeCatchAll
+} from "./types";
+
+// Node representing a route segment in the radix tree
+export struct RadixNode {
+  path: String,
+  part: String,
+  isWild: Bool,
+  isParam: Bool,
+  paramName: String,
+  wildName: String,
+  handlers: []Any,
+  children: []RadixNode,
+  fullPath: String
+};
+
+// Creates a fresh root node
+export fn NewRadixNode(part: String, isWild: Bool, isParam: Bool): RadixNode => {
+  {
+    path: "",
+    part: part,
+    isWild: isWild,
+    isParam: isParam,
+    paramName: "",
+    wildName: "",
+    handlers: [],
+    children: [],
+    fullPath: ""
+  }
+}
+
+// Radix Tree container for an HTTP method
+export struct RadixTree {
+  method: String,
+  root: RadixNode
+};
+
+export fn NewRadixTree(method: String): RadixTree => {
+  {
+    method: method,
+    root: NewRadixNode("/", false, false)
+  }
+}
+
+// Clean and normalize route path
+export fn CleanPath(p: String): String => {
+  if p == "" {
+    return "/";
+  }
+  let mut res = p;
+  if !res.startsWith("/") {
+    res = `/${res}`;
+  }
+  if len(res) > 1 && res.endsWith("/") {
+    res = res[0: len(res) - 1];
+  }
+  res
+}
+
+// Split route path into normalized segments
+export fn SplitSegments(path: String): []String => {
+  let cleaned = CleanPath(path);
+  let rawParts = cleaned.split("/");
+  let mut parts: []String = [];
+  for part in rawParts {
+    if part != "" {
+      parts = append(parts, part);
+    }
+  }
+  parts
+}
+
+// Insert a route into the Radix Tree
+fn (tree: *RadixTree) AddRoute(path: String, handlers: []Any): Unit => {
+  let cleaned = CleanPath(path);
+  let parts = SplitSegments(cleaned);
+
+  let mut current = tree.root;
+
+  for part in parts {
+    let isWild = part.startsWith("*");
+    let isParam = part.startsWith(":");
+
+    let mut foundIndex = -1;
+    for i, child in current.children {
+      if child.part == part {
+        foundIndex = i;
+        break;
+      }
+    }
+
+    if foundIndex >= 0 {
+      current = current.children[foundIndex];
+    } else {
+      let mut newNode = NewRadixNode(part, isWild, isParam);
+      if isParam {
+        newNode.paramName = part[1:];
+      } else if isWild {
+        newNode.wildName = part[1:];
+      }
+      current.children = append(current.children, newNode);
+      let lastIdx = len(current.children) - 1;
+      current = current.children[lastIdx];
+    }
+
+    if isWild {
+      break;
+    }
+  }
+
+  current.handlers = handlers;
+  current.fullPath = cleaned;
+  current.path = cleaned;
+}
+
+// Search a route path and extract path parameters
+fn (tree: *RadixTree) Search(path: String): MatchResult => {
+  let cleaned = CleanPath(path);
+  let parts = SplitSegments(cleaned);
+
+  if len(parts) == 0 {
+    if len(tree.root.handlers) > 0 {
+      let emptyParams: Params = [];
+      return MatchedRoute(tree.root.handlers, emptyParams, tree.root.fullPath);
+    }
+    return RouteNotFound;
+  }
+
+  let mut current = tree.root;
+  let mut capturedParams: Params = [];
+
+  let mut idx = 0;
+  let totalParts = len(parts);
+  let mut searchFailed = false;
+
+  while idx < totalParts && !searchFailed {
+    let part = parts[idx];
+    let mut matchedChild = -1;
+    let mut paramChild = -1;
+    let mut wildcardChild = -1;
+
+    for i, child in current.children {
+      if child.part == part {
+        matchedChild = i;
+        break;
+      } else if child.isParam && paramChild == -1 {
+        paramChild = i;
+      } else if child.isWild && wildcardChild == -1 {
+        wildcardChild = i;
+      }
+    }
+
+    if matchedChild >= 0 {
+      current = current.children[matchedChild];
+      idx += 1;
+    } else if paramChild >= 0 {
+      current = current.children[paramChild];
+      let p: Param = {
+        key: current.paramName,
+        value: part
+      };
+      capturedParams = append(capturedParams, p);
+      idx += 1;
+    } else if wildcardChild >= 0 {
+      current = current.children[wildcardChild];
+      let mut wildParts: []String = [];
+      let mut remainingIdx = idx;
+      while remainingIdx < totalParts {
+        wildParts = append(wildParts, parts[remainingIdx]);
+        remainingIdx += 1;
+      };
+      let wildVal = wildParts.join("/");
+      let p: Param = {
+        key: current.wildName,
+        value: wildVal
+      };
+      capturedParams = append(capturedParams, p);
+      idx = totalParts;
+    } else {
+      searchFailed = true;
+    }
+  };
+
+  if searchFailed {
+    RouteNotFound
+  } else if len(current.handlers) > 0 {
+    MatchedRoute(current.handlers, capturedParams, current.fullPath)
+  } else {
+    RouteNotFound
+  }
+}

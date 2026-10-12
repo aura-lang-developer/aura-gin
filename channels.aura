@@ -1,0 +1,63 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// channels.aura - Native CSP Concurrency, Channels & Fiber Streaming
+// ==============================================================================
+
+import { GinContext } from "./context";
+
+// Streams data from a CSP Channel directly over HTTP chunked transfer.
+// This enables real-time Server-Sent Events (SSE) and live data feeds.
+export fn StreamChannel(c: *GinContext, ch: Channel<String>): Unit => {
+  c.Header("Content-Type", "text/event-stream");
+  c.Header("Cache-Control", "no-cache");
+  c.Header("Connection", "keep-alive");
+
+  let res = c.Writer;
+
+  spawn {
+    let mut open = true;
+    while open {
+      let msg = <-ch;
+      match msg {
+        Some(val) => {
+          if res != null && res.write != null {
+            res.write(`data: ${val}\n\n`);
+          }
+        },
+        None => {
+          open = false;
+        }
+      };
+    };
+  };
+}
+
+// EventHub manages concurrent pub/sub streaming channels across fibers
+export struct EventHub {
+  subscribers: []Channel<String>
+};
+
+export fn NewEventHub(): EventHub => {
+  let empty: []Channel<String> = [];
+  { subscribers: empty }
+}
+
+// Registers a subscriber channel
+fn (hub: *EventHub) Subscribe(ch: Channel<String>): Unit => {
+  hub.subscribers = append(hub.subscribers, ch);
+}
+
+// Broadcasts a message to all active subscriber channels
+fn (hub: *EventHub) Broadcast(msg: String): Unit => {
+  for sub in hub.subscribers {
+    sub <- msg;
+  }
+}
+
+// Runs an asynchronous handler in a background fiber using a safe copy of Context
+export fn Async(c: *GinContext, handler: Any): Unit => {
+  let mut cc = c.Copy();
+  spawn {
+    handler(&cc);
+  };
+}

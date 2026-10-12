@@ -1,0 +1,97 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// render.aura - Response Rendering Engines (JSON, HTML, XML, Plain, Redirect)
+// ==============================================================================
+
+import { Render } from "./types";
+
+let MIMEJSON = "application/json";
+let MIMEPlain = "text/plain";
+let MIMEHTML = "text/html";
+let MIMEXML = "application/xml";
+let MIMEYAML = "application/x-yaml";
+
+
+// JSON Renderer
+export struct JSONRenderer {
+  data: Any
+};
+
+export fn NewJSON(data: Any): JSONRenderer => {
+  { data: data }
+}
+
+fn (r: JSONRenderer) Render(res: Any): Unit => {
+  if res != null {
+    if res.setHeader != null {
+      res.setHeader("Content-Type", `${MIMEJSON}; charset=utf-8`);
+    }
+    if res.end != null {
+      res.end(JSON.stringify(r.data));
+    }
+  }
+}
+
+// Plain Text Renderer
+export struct StringRenderer {
+  format: String
+};
+
+export fn NewString(text: String): StringRenderer => {
+  { format: text }
+}
+
+fn (r: StringRenderer) Render(res: Any): Unit => {
+  if res != null {
+    if res.setHeader != null {
+      res.setHeader("Content-Type", `${MIMEPlain}; charset=utf-8`);
+    }
+    if res.end != null {
+      res.end(r.format);
+    }
+  }
+}
+
+// HTML Renderer
+export struct HTMLRenderer {
+  html: String
+};
+
+export fn NewHTML(html: String): HTMLRenderer => {
+  { html: html }
+}
+
+fn (r: HTMLRenderer) Render(res: Any): Unit => {
+  if res != null {
+    if res.setHeader != null {
+      res.setHeader("Content-Type", `${MIMEHTML}; charset=utf-8`);
+    }
+    if res.end != null {
+      res.end(r.html);
+    }
+  }
+}
+
+// Redirect Renderer
+export struct RedirectRenderer {
+  code: Int,
+  location: String
+};
+
+export fn NewRedirect(code: Int, location: String): RedirectRenderer => {
+  { code: code, location: location }
+}
+
+fn (r: RedirectRenderer) Render(res: Any): Unit => {
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(r.code);
+    }
+    if res.setHeader != null {
+      res.setHeader("Location", r.location);
+    }
+    if res.end != null {
+      res.end("");
+    }
+  }
+}

@@ -1,0 +1,417 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// engine.aura - The Core HTTP Multiplexer & Engine
+// ==============================================================================
+
+import {
+  Param,
+  Params,
+  RouteInfo,
+  RoutesInfo,
+  MatchResult,
+  MatchedRoute,
+  RouteNotFound,
+  MethodNotAllowedRoute
+} from "./types";
+import { RadixTree, NewRadixTree } from "./tree";
+import { GinContext, NewContext } from "./context";
+import { JoinPaths } from "./routergroup";
+import { Logger } from "./logger";
+import { Recovery } from "./recovery";
+
+// The Engine is the framework's core instance.
+// It contains the multiplexer, configuration flags, method routing trees,
+// and manages request dispatching and lifecycle execution.
+export struct Engine {
+  basePath: String,
+  handlers: []Any,
+  trees: []RadixTree,
+  RedirectTrailingSlash: Bool,
+  RedirectFixedPath: Bool,
+  HandleMethodNotAllowed: Bool,
+  ForwardedByClientIP: Bool,
+  UseRawPath: Bool,
+  UnescapePathValues: Bool,
+  MaxMultipartMemory: Int,
+  allRoutes: RoutesInfo,
+  noRoute: []Any,
+  noMethod: []Any,
+  mode: String,
+  mux: Any,
+  parent: Any
+};
+
+
+// Global mode state
+let mut currentMode: String = "debug";
+
+// SetMode sets the gin runtime mode (debug, release, test)
+export fn SetMode(value: String): Unit => {
+  if (value == "release" || value == "prod") {
+    currentMode = "release";
+  } else if (value == "test") {
+    currentMode = "test";
+  } else {
+    currentMode = "debug";
+  };
+}
+
+// Mode returns current gin mode
+export fn Mode(): String => {
+  currentMode
+}
+
+// IsDebugging returns whether current mode is debug
+export fn IsDebugging(): Bool => {
+  currentMode == "debug"
+}
+
+
+// Internal constructor creating standard method radix trees
+fn createStandardTrees(): []RadixTree => {
+  let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+  let mut trees: []RadixTree = [];
+  for m in methods {
+    trees = append(trees, NewRadixTree(m));
+  }
+  trees
+}
+
+// New returns a new blank Engine instance without any middleware attached
+export fn New(): *Engine => {
+  let initialTrees = createStandardTrees();
+  let emptyHandlers: []Any = [];
+  let emptyRoutes: RoutesInfo = [];
+  let emptyNoRoute: []Any = [];
+  let emptyNoMethod: []Any = [];
+
+  let mut eng: Engine = {
+    basePath: "/",
+    handlers: emptyHandlers,
+    trees: initialTrees,
+    RedirectTrailingSlash: true,
+    RedirectFixedPath: false,
+    HandleMethodNotAllowed: true,
+    ForwardedByClientIP: true,
+    UseRawPath: false,
+    UnescapePathValues: true,
+    MaxMultipartMemory: 33554432, // 32 MB
+    allRoutes: emptyRoutes,
+    noRoute: emptyNoRoute,
+    noMethod: emptyNoMethod,
+    mode: currentMode,
+    mux: null,
+    parent: null
+  };
+
+  &eng
+}
+
+// Default returns an Engine instance with Logger and Recovery middleware already attached
+export fn Default(): *Engine => {
+  let eng = New();
+  eng.Use(Logger());
+  eng.Use(Recovery());
+  eng
+}
+
+// ------------------------------------------------------------------------------
+// Route Registration & Method Trees Management
+// ------------------------------------------------------------------------------
+
+// Internal method to insert route into the specific HTTP method radix tree
+fn (engine: *Engine) addRoute(httpMethod: String, path: String, handlers: []Any): Unit => {
+  let upperMethod = httpMethod.toUpperCase();
+
+  // Find or create method tree
+  let mut foundTreeIdx = -1;
+  for i, t in engine.trees {
+    if t.method == upperMethod {
+      foundTreeIdx = i;
+      break;
+    }
+  }
+
+  if foundTreeIdx == -1 {
+    let newTree = NewRadixTree(upperMethod);
+    engine.trees = append(engine.trees, newTree);
+    foundTreeIdx = len(engine.trees) - 1;
+  }
+
+  engine.trees[foundTreeIdx].AddRoute(path, handlers);
+
+  // Record route introspection
+  let rInfo: RouteInfo = {
+    method: upperMethod,
+    path: path,
+    handler: "HandlerFunc",
+    numHandlers: len(handlers)
+  };
+  engine.allRoutes = append(engine.allRoutes, rInfo);
+  let mut cur = engine.parent;
+  while cur != null && cur != undefined {
+    cur.allRoutes = append(cur.allRoutes, rInfo);
+    cur = cur.parent;
+  };
+
+
+  if IsDebugging() {
+    println(`[GIN-debug] ${upperMethod}    ${path} --> (${len(handlers)} handlers)`);
+  }
+}
+
+// Adds middleware handlers to the root router group
+fn (engine: *Engine) Use(middleware: Any): *Engine => {
+  engine.handlers = append(engine.handlers, middleware);
+  engine
+}
+
+// Returns current base path of the engine/group
+fn (engine: *Engine) BasePath(): String => {
+  engine.basePath
+}
+
+// Creates a scoped route group with URL prefix
+fn (engine: *Engine) Group(relativePath: String): *Engine => {
+  let joinedPath = JoinPaths(engine.basePath, relativePath);
+  let mut inherited: []Any = [];
+  for h in engine.handlers {
+    inherited = append(inherited, h);
+  }
+
+  let mut sub: Engine = {
+    basePath: joinedPath,
+    handlers: inherited,
+    trees: engine.trees,
+    RedirectTrailingSlash: engine.RedirectTrailingSlash,
+    RedirectFixedPath: engine.RedirectFixedPath,
+    HandleMethodNotAllowed: engine.HandleMethodNotAllowed,
+    ForwardedByClientIP: engine.ForwardedByClientIP,
+    UseRawPath: engine.UseRawPath,
+    UnescapePathValues: engine.UnescapePathValues,
+    MaxMultipartMemory: engine.MaxMultipartMemory,
+    allRoutes: engine.allRoutes,
+    noRoute: engine.noRoute,
+    noMethod: engine.noMethod,
+    mode: engine.mode,
+    mux: engine.mux,
+    parent: engine
+  };
+
+  &sub
+}
+
+// Shortcut route helpers
+fn (engine: *Engine) Handle(httpMethod: String, relativePath: String, handler: Any): *Engine => {
+  let fullPath = JoinPaths(engine.basePath, relativePath);
+  let mut combined: []Any = [];
+  for h in engine.handlers {
+    combined = append(combined, h);
+  }
+  combined = append(combined, handler);
+  engine.addRoute(httpMethod, fullPath, combined);
+  engine
+}
+
+fn (engine: *Engine) GET(relativePath: String, handler: Any): *Engine => {
+  engine.Handle("GET", relativePath, handler)
+}
+
+fn (engine: *Engine) POST(relativePath: String, handler: Any): *Engine => {
+  engine.Handle("POST", relativePath, handler)
+}
+
+fn (engine: *Engine) PUT(relativePath: String, handler: Any): *Engine => {
+  engine.Handle("PUT", relativePath, handler)
+}
+
+fn (engine: *Engine) DELETE(relativePath: String, handler: Any): *Engine => {
+  engine.Handle("DELETE", relativePath, handler)
+}
+
+fn (engine: *Engine) PATCH(relativePath: String, handler: Any): *Engine => {
+  engine.Handle("PATCH", relativePath, handler)
+}
+
+fn (engine: *Engine) OPTIONS(relativePath: String, handler: Any): *Engine => {
+  engine.Handle("OPTIONS", relativePath, handler)
+}
+
+fn (engine: *Engine) HEAD(relativePath: String, handler: Any): *Engine => {
+  engine.Handle("HEAD", relativePath, handler)
+}
+
+fn (engine: *Engine) Any(relativePath: String, handler: Any): *Engine => {
+  let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+  for m in methods {
+    engine.Handle(m, relativePath, handler);
+  }
+  engine
+}
+
+fn (engine: *Engine) Match(methods: []String, relativePath: String, handler: Any): *Engine => {
+  for m in methods {
+    engine.Handle(m, relativePath, handler);
+  }
+  engine
+}
+
+fn (engine: *Engine) Static(relativePath: String, root: String): *Engine => {
+  let wildcard = if relativePath.endsWith("/") { "*filepath" } else { "/*filepath" };
+  let pattern = JoinPaths(relativePath, wildcard);
+  engine.GET(pattern, fn(c: GinContext): Unit => {
+    let fp = c.Param("filepath");
+    let fullLocalPath = `${root}/${fp}`;
+    let res = c.Writer;
+    if res != null && res.sendFile != null {
+      res.sendFile(fullLocalPath);
+    } else {
+      c.String(StatusOK, `Serving file: ${fullLocalPath}`);
+    }
+  });
+  engine
+}
+
+fn (engine: *Engine) StaticFile(relativePath: String, filepath: String): *Engine => {
+  engine.GET(relativePath, fn(c: GinContext): Unit => {
+    let res = c.Writer;
+    if res != null && res.sendFile != null {
+      res.sendFile(filepath);
+    } else {
+      c.String(StatusOK, `Serving static file: ${filepath}`);
+    }
+  });
+  engine
+}
+
+
+// Configures handlers for 404 Not Found responses
+fn (engine: *Engine) NoRoute(handlers: []Any): Unit => {
+  engine.noRoute = handlers;
+}
+
+// Configures handlers for 405 Method Not Allowed responses
+fn (engine: *Engine) NoMethod(handlers: []Any): Unit => {
+  engine.noMethod = handlers;
+}
+
+// Returns a copy of all registered routes for introspection
+fn (engine: *Engine) Routes(): RoutesInfo => {
+  engine.allRoutes
+}
+
+// ------------------------------------------------------------------------------
+// Request Dispatching & Lifecycle Execution (ServeHTTP)
+// ------------------------------------------------------------------------------
+
+// Dispatches an incoming HTTP request through Gin's routing tree and middleware pipeline
+fn (engine: *Engine) ServeHTTP(req: Any, res: Any): Unit => {
+  let mut c = NewContext(req, res, engine);
+
+  // Extract raw body if present
+  if req.rawBody != null && req.rawBody != undefined {
+    c.rawBody = `${req.rawBody}`;
+  }
+
+  // Parse path from URL
+  let mut path = "/";
+  if req.path != null && req.path != undefined && req.path != "" {
+    path = req.path;
+  } else if req.url != null && req.url != undefined && req.url != "" {
+    let qIdx = req.url.indexOf("?");
+    path = if qIdx >= 0 { req.url.substring(0, qIdx) } else { req.url };
+  }
+
+  let method = if req.method != null && req.method != undefined { `${req.method}`.toUpperCase() } else { "GET" };
+
+
+  // Find matching Radix Tree for method
+  let mut targetTreeIdx = -1;
+  for i, t in engine.trees {
+    if t.method == method {
+      targetTreeIdx = i;
+      break;
+    }
+  }
+
+  if targetTreeIdx >= 0 {
+    let matchRes = engine.trees[targetTreeIdx].Search(path);
+    match matchRes {
+      MatchedRoute(handlers, params, fullPath) => {
+        c.handlers = handlers;
+        c.Params = params;
+        c.fullPath = fullPath;
+        c.Next();
+        return ();
+      },
+      RouteNotFound => (),
+      MethodNotAllowedRoute => ()
+    }
+  }
+
+  // Check if route exists under ANY other HTTP method (405 Method Not Allowed)
+  if engine.HandleMethodNotAllowed {
+    let mut otherMatch = false;
+    for t in engine.trees {
+      if t.method != method {
+        let altRes = t.Search(path);
+        match altRes {
+          MatchedRoute(h, p, fp) => {
+            otherMatch = true;
+          },
+          RouteNotFound => (),
+          MethodNotAllowedRoute => ()
+        }
+      }
+    }
+
+    if otherMatch {
+      if len(engine.noMethod) > 0 {
+        c.handlers = engine.noMethod;
+        c.Next();
+      } else {
+        c.String(405, "405 method not allowed");
+      }
+      return ();
+    }
+  }
+
+  // 404 Not Found fallback
+  if len(engine.noRoute) > 0 {
+    c.handlers = engine.noRoute;
+    c.Next();
+  } else {
+    c.String(404, "404 page not found");
+  }
+}
+
+// ------------------------------------------------------------------------------
+// Server Listening & Lifecycle (Run)
+// ------------------------------------------------------------------------------
+
+// Attaches engine to native HTTP ServeMux and starts listening
+fn (engine: *Engine) Run(addr: String): Unit => {
+  let mux = http.newServeMux();
+  engine.mux = mux;
+
+  // Global middleware capturing request body and forwarding to engine.ServeHTTP
+  mux.use(fn(req: Any, res: Any, next: Any) => {
+    let mut buffer = "";
+    if req.on != null {
+      req.on("data", fn(chunk: Any) => {
+        buffer = buffer + chunk;
+      });
+      req.on("end", fn() => {
+        req.rawBody = buffer;
+        engine.ServeHTTP(req, res);
+      });
+    } else {
+      engine.ServeHTTP(req, res);
+    }
+  });
+
+  let effectiveAddr = if addr != "" { addr } else { ":8080" };
+  println(`[GIN-debug] Listening and serving HTTP on ${effectiveAddr}`);
+  mux.listenAndServe(effectiveAddr);
+  ()
+}

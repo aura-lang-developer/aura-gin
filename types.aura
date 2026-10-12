@@ -1,0 +1,110 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// types.aura - Core Types, Interfaces, ADTs & Constants
+// ==============================================================================
+
+// --- 1. Mode Constants & Enums ---
+
+export fn DebugMode(): String => "debug";
+export fn ReleaseMode(): String => "release";
+export fn TestMode(): String => "test";
+
+export type EngineMode =
+  | ModeDebug
+  | ModeRelease
+  | ModeTest;
+
+// Note: HTTP Status codes (StatusOK, StatusBadRequest, etc.) are built into Aura's prelude.
+
+
+// --- 3. MIME Types ---
+
+export fn MIMEJSON(): String => "application/json";
+export fn MIMEHTML(): String => "text/html";
+export fn MIMEXML(): String => "application/xml";
+export fn MIMEPlain(): String => "text/plain";
+export fn MIMEPOSTForm(): String => "application/x-www-form-urlencoded";
+export fn MIMEMultipartPOSTForm(): String => "multipart/form-data";
+export fn MIMEYAML(): String => "application/x-yaml";
+export fn MIMETOML(): String => "application/toml";
+
+
+// --- 4. Core Structs & Aliases ---
+
+// URL Parameter key-value pair
+export struct Param {
+  key: String,
+  value: String
+};
+
+export type Params = []Param;
+
+// Map alias identical to gin.H{"foo": "bar"}
+export type H = Any;
+
+// Accounts dictionary for BasicAuth middleware
+export type Accounts = Any;
+
+// Route introspection metadata
+export struct RouteInfo {
+  method: String,
+  path: String,
+  handler: String,
+  numHandlers: Int
+};
+
+export type RoutesInfo = []RouteInfo;
+
+// Error structure collected in Context
+export struct GinError {
+  err: String,
+  errType: Int,
+  meta: Any
+};
+
+export fn ErrorTypeBind(): Int => 1;
+export fn ErrorTypeRender(): Int => 2;
+export fn ErrorTypePrivate(): Int => 4;
+export fn ErrorTypePublic(): Int => 8;
+export fn ErrorTypeAny(): Int => 15;
+
+
+// --- 5. Radix Tree ADTs & Match Results ---
+
+export type NodeType =
+  | NodeStatic
+  | NodeParam(String)
+  | NodeCatchAll(String);
+
+export type MatchResult =
+  | MatchedRoute(Any, Params, String)
+  | RouteNotFound
+  | MethodNotAllowedRoute;
+
+export type ParamResult =
+  | FoundParam(String)
+  | MissingParam;
+
+// --- 6. Implicit Interfaces (Structural Duck Typing) ---
+
+export interface IRoutes {
+  Use(middleware: Any): Any;
+  Handle(httpMethod: String, relativePath: String, handler: Any): Any;
+  Any(relativePath: String, handler: Any): Any;
+  GET(relativePath: String, handler: Any): Any;
+  POST(relativePath: String, handler: Any): Any;
+  DELETE(relativePath: String, handler: Any): Any;
+  PATCH(relativePath: String, handler: Any): Any;
+  PUT(relativePath: String, handler: Any): Any;
+  OPTIONS(relativePath: String, handler: Any): Any;
+  HEAD(relativePath: String, handler: Any): Any;
+}
+
+export interface Render {
+  Render(res: Any): Unit;
+}
+
+export interface Binding {
+  Name(): String;
+  Bind(req: Any, obj: Any): Result<Any, String>;
+}

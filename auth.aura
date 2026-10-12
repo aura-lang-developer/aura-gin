@@ -1,0 +1,57 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// auth.aura - HTTP Basic Authentication Middleware
+// ==============================================================================
+
+import { GinContext } from "./context";
+import { Accounts } from "./types";
+
+// Base64 decoding table
+let b64Chars: String = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Base64 decoder leveraging Aura crypto builtin
+export fn DecodeBase64(input: String): String => {
+  let urlSafe = input.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+  let res = crypto.base64UrlDecode(urlSafe);
+  match res {
+    Ok(s) => s,
+    Err(e) => ""
+  }
+}
+
+// BasicAuth returns a middleware that provides HTTP Basic Authentication.
+// It verifies the credentials against the provided accounts dictionary.
+// On success, it registers the authenticated username in context via c.Set("user", username).
+export fn BasicAuth(accounts: Accounts): Any => {
+  fn(c: *GinContext): Unit => {
+    let authHeader = c.GetHeader("Authorization");
+    if !authHeader.startsWith("Basic ") {
+      c.Header("WWW-Authenticate", "Basic realm=\"Authorization Required\"");
+      c.AbortWithStatus(StatusUnauthorized);
+      return ();
+    }
+
+    let b64Creds = authHeader.substring(6).trim();
+    let decoded = DecodeBase64(b64Creds);
+    let colonIdx = decoded.indexOf(":");
+
+    if colonIdx < 0 {
+      c.Header("WWW-Authenticate", "Basic realm=\"Authorization Required\"");
+      c.AbortWithStatus(StatusUnauthorized);
+      return ();
+    }
+
+    let user = decoded.substring(0, colonIdx);
+    let pass = decoded.substring(colonIdx + 1);
+
+    if accounts[user] == null || accounts[user] != pass {
+      c.Header("WWW-Authenticate", "Basic realm=\"Authorization Required\"");
+      c.AbortWithStatus(StatusUnauthorized);
+      return ();
+    }
+
+    // Register authenticated user in Context
+    c.Set("user", user);
+    c.Next();
+  }
+}

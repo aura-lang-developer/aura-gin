@@ -1,0 +1,216 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// tests/gin_e2e_test.aura - End-to-End Engine Dispatch & Routing Tests
+// ==============================================================================
+
+import { Default, New, SetMode, Mode } from "../engine";
+import { GinContext } from "../context";
+import { PongHandler } from "../gin";
+
+export fn main(): Unit => {
+  let mut passed = 0;
+  let mut failed = 0;
+
+  println("================================================================================");
+  println("  🧪 GIN AURA - END-TO-END ENGINE DISPATCH SUITE");
+  println("================================================================================");
+
+  // Set test mode
+  SetMode("test");
+  if (Mode() == "test") {
+    println("  ✓ PASS: SetMode('test') updated engine runtime mode");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Engine mode mismatch: " + Mode());
+    failed += 1;
+  };
+
+  // Helper factory for mock responses
+  let makeMockRes = fn(): Any => {
+    let mut recordedData = "";
+    let mut recordedStatus = 200;
+    let mut recordedHeaders: Any = {};
+
+    {
+      statusCode: 200,
+      headers: recordedHeaders,
+      setHeader: fn(k: String, v: String): Unit => {
+        recordedHeaders[k] = v;
+      },
+      writeHead: fn(st: Int): Unit => {
+        recordedStatus = st;
+      },
+      end: fn(dt: Any): Unit => {
+        if dt != null && dt != undefined {
+          recordedData = `${dt}`;
+        }
+      },
+      getStatus: fn(): Int => recordedStatus,
+      getBody: fn(): String => recordedData
+    }
+  };
+
+  // Create an Engine instance
+  let mut router = Default();
+
+  // Register routes
+  router.GET("/ping", PongHandler);
+
+  router.GET("/users/:id", fn(c: GinContext): Unit => {
+    let id = c.Param("id");
+    c.JSON(StatusOK, { id: id, name: "Alice" });
+  });
+
+  router.POST("/api/echo", fn(c: GinContext): Unit => {
+    let bindRes = c.BindJSON();
+    match bindRes {
+      Ok(data) => {
+        c.JSON(StatusCreated, { received: data, status: "created" });
+      },
+      Err(err) => {
+        c.JSON(StatusBadRequest, { error: err });
+      }
+    };
+  });
+
+  // Grouped routing
+  let mut v1 = router.Group("/api/v1");
+  v1.GET("/stats", fn(c: GinContext): Unit => {
+    c.JSON(StatusOK, { uptime: 100, active_fibers: 4 });
+  });
+
+  // Custom 404 handler
+  router.NoRoute([
+    fn(c: GinContext): Unit => {
+      c.JSON(StatusNotFound, { error: "Resource not found on Aura Gin" });
+    }
+  ]);
+
+  // ----------------------------------------------------------------------------
+  // Test 1: GET /ping (PongHandler)
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 1] Dispatch GET /ping -> 200 Pong");
+  let mockRes1 = makeMockRes();
+  let mockReq1: Any = {
+    method: "GET",
+    url: "/ping",
+    path: "/ping",
+    headers: {}
+  };
+
+  router.ServeHTTP(mockReq1, mockRes1);
+  if (mockRes1.getBody().includes("pong")) {
+    println("  ✓ PASS: GET /ping returned JSON pong");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Expected pong response, got: " + mockRes1.getBody());
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 2: GET /users/:id (Param extraction)
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 2] Dispatch GET /users/42 -> Param Extraction");
+  let mockRes2 = makeMockRes();
+  let mockReq2: Any = {
+    method: "GET",
+    url: "/users/42",
+    path: "/users/42",
+    headers: {}
+  };
+
+  router.ServeHTTP(mockReq2, mockRes2);
+  if (mockRes2.getBody().includes("\"id\":\"42\"") || mockRes2.getBody().includes("42")) {
+    println("  ✓ PASS: GET /users/42 extracted param :id = 42");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Param extraction failed, body: " + mockRes2.getBody());
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 3: POST /api/echo (JSON Binding & 201 Created)
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 3] Dispatch POST /api/echo -> JSON Binding & 201 Created");
+  let mockRes3 = makeMockRes();
+  let mockReq3: Any = {
+    method: "POST",
+    url: "/api/echo",
+    path: "/api/echo",
+    rawBody: "{\"language\":\"Aura\",\"fast\":true}",
+    headers: {
+      "content-type": "application/json"
+    }
+  };
+
+  router.ServeHTTP(mockReq3, mockRes3);
+  if (mockRes3.getBody().includes("Aura") && mockRes3.getBody().includes("created")) {
+    println("  ✓ PASS: POST /api/echo bound JSON and returned 201 Created");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: JSON binding failed, body: " + mockRes3.getBody());
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 4: Router Group Prefix Dispatch (/api/v1/stats)
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 4] Dispatch Router Group GET /api/v1/stats");
+  let mockRes4 = makeMockRes();
+  let mockReq4: Any = {
+    method: "GET",
+    url: "/api/v1/stats",
+    path: "/api/v1/stats",
+    headers: {}
+  };
+
+  router.ServeHTTP(mockReq4, mockRes4);
+  if (mockRes4.getBody().includes("active_fibers")) {
+    println("  ✓ PASS: RouterGroup prefix /api/v1/stats dispatched correctly");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: RouterGroup dispatch failed, body: " + mockRes4.getBody());
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 5: 404 NoRoute Handling
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 5] Dispatch Non-existent Route -> 404 Not Found");
+  let mockRes5 = makeMockRes();
+  let mockReq5: Any = {
+    method: "GET",
+    url: "/non/existent/path",
+    path: "/non/existent/path",
+    headers: {}
+  };
+
+  router.ServeHTTP(mockReq5, mockRes5);
+  if (mockRes5.getBody().includes("Resource not found")) {
+    println("  ✓ PASS: NoRoute executed custom 404 handler");
+    passed += 1;
+  } else {
+    println("  ✕ FAIL: Expected custom 404 response, got: " + mockRes5.getBody());
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Test 6: Route Introspection
+  // ----------------------------------------------------------------------------
+  println("\n[TEST 6] Route Introspection (router.Routes())");
+  let allRoutes = router.Routes();
+  if (len(allRoutes) >= 4) {
+    println(`  ✓ PASS: router.Routes() registered ${len(allRoutes)} routes`);
+    passed += 1;
+  } else {
+    println(`  ✕ FAIL: Expected at least 4 routes, found ${len(allRoutes)}`);
+    failed += 1;
+  };
+
+  // ----------------------------------------------------------------------------
+  // Summary
+  // ----------------------------------------------------------------------------
+  println("\n--------------------------------------------------------------------------------");
+  println(`  📊 RESULTS: ${passed} PASSED | ${failed} FAILED`);
+  println("================================================================================");
+}

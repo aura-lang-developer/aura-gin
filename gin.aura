@@ -1,0 +1,50 @@
+// ==============================================================================
+// Gin Web Framework for Aura Language
+// gin.aura - The Core Public API Facade & Root Module
+// ==============================================================================
+
+import {
+  DebugMode,
+  ReleaseMode,
+  TestMode,
+  MIMEJSON,
+  MIMEHTML,
+  MIMEXML,
+  MIMEPlain,
+  Param,
+  Params,
+  H,
+  Accounts,
+  RouteInfo,
+  RoutesInfo,
+  GinError
+} from "./types";
+
+import { GinContext, NewContext } from "./context";
+import { JoinPaths } from "./routergroup";
+import { RadixTree, NewRadixTree } from "./tree";
+import { Engine, New, Default, SetMode, Mode, IsDebugging } from "./engine";
+import { Logger, LoggerWithConfig, ColorForStatus, ColorForMethod } from "./logger";
+import { Recovery, CustomRecovery } from "./recovery";
+import { CORS, CORSWithConfig } from "./cors";
+import { BasicAuth, DecodeBase64 } from "./auth";
+import { StreamChannel, EventHub, NewEventHub, Async } from "./channels";
+import { ValidateRule, ValidateSchema, FieldRule, NewJSONBinding } from "./binding";
+
+export type RouterGroup = Engine;
+
+
+// Framework Version
+export fn Version(): String => "v1.10.0-aura";
+
+
+// Convenience factory for gin.H map
+export fn MakeH(): H => {
+  let m: H = {};
+  m
+}
+
+// Quick echo handler
+export fn PongHandler(c: *GinContext): Unit => {
+  c.JSON(StatusOK, { message: "pong" });
+}
