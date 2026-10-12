@@ -399,10 +399,10 @@ fn (engine: *Engine) Run(addr: String): Unit => {
   let mux = http.newServeMux();
   engine.mux = mux;
 
-  // Global middleware capturing request body and forwarding to engine.ServeHTTP
-  mux.use(fn(req: Any, res: Any, next: Any) => {
+  // Wildcard route capturing all HTTP methods and paths into Gin's engine.ServeHTTP
+  mux.handle("/*", fn(req: Any, res: Any) => {
     let mut buffer = "";
-    if req.on != null {
+    if req.on != null && req.method != "GET" && req.method != "HEAD" {
       req.on("data", fn(chunk: Any) => {
         buffer = buffer + chunk;
       });
