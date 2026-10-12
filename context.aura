@@ -84,6 +84,15 @@ fn (c: *GinContext) Abort(): Unit => {
 // Sets the HTTP status code and halts handler execution
 fn (c: *GinContext) AbortWithStatus(code: Int): Unit => {
   c.Status(code);
+  let res = c.Writer;
+  if res != null {
+    if res.writeHead != null {
+      res.writeHead(code);
+    }
+    if res.end != null {
+      res.end("");
+    }
+  }
   c.Abort();
 }
 
@@ -389,8 +398,8 @@ fn (c: *GinContext) GetFloat(key: String): Float => {
 fn (c: *GinContext) Status(code: Int): Unit => {
   c.statusCode = code;
   let res = c.Writer;
-  if res != null && res.writeHead != null {
-    res.writeHead(code);
+  if res != null {
+    res.statusCode = code;
   }
 }
 
